@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sdwan-analyzer"
+version = "0.1.0"
+authors = [{ name = "Your Name", email = "your@example.com" }]
+description = "SD-WAN 云网跨境健康分析平台"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "ping3>=4.0.0",
+    "requests>=2.31.0",
+    "dnspython>=2.4",
+    "geoip2>=4.8",
+    "pandas>=2.1",
+    "pydantic>=2.0",
+    "python-dotenv>=1.0.0"
+]
+
+[project.scripts]
+sdwan-analyzer = "sdwan_analyzer.main:cli"
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.8.0",
+    "pytest>=7.0",
+    "mypy>=1.10",
+    "pre-commit>=3.0"
+]
+
+# ================= Ruff 代码格式化 & 检查 =================
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+extend-include = ["*.py"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = ["D100", "D104"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+# ================= mypy 类型检查 =================
+[tool.mypy]
+python_version = "3.10"
+strict = true
+disallow_untyped_defs = true
+show_error_codes = true
+
+# ================= pytest 测试 =================
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

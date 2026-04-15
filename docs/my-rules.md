@@ -1,0 +1,137 @@
+企业级 Python 编码与目录文件规范（正式团队版・可直接下发）
+版本：v2026.03 | 状态：最终定稿 | 适用：所有 Python 项目
+1. 总则
+本规范为当代 Python 工程唯一强制标准，所有新项目必须严格遵守，老项目逐步迁移。
+目标：可读性、可维护性、可移植性、生产安全。
+编码标准 + 结构固定 + 依赖干净 + 配置分离 + 统一入口 + 简单测试
+2. 文件编码规范（强制）
+所有文件统一使用 UTF-8 无 BOM 编码
+适用：.py/.toml/.yml/.md/.env/Dockerfile
+换行符统一使用 LF（\n）
+Windows 执行：git config --global core.autocrlf input
+所有文件末尾必须空一行
+Python 文件禁止添加编码声明
+不允许：# -*- coding: utf-8 -*-
+读写文件必须指定 encoding="utf-8"
+不允许使用系统默认编码（避免乱码）
+3. 命名规范（精确到字符）
+3.1 目录 / 包
+全小写、无大写、无空格、无中文、无拼音
+无下划线、无横杠
+示例：user、order、core、utils
+3.2 模块文件（.py）
+全小写 + 下划线分隔
+示例：user_service.py、date_utils.py
+禁止：UserService.py、utils.py（大杂烩）
+3.3 变量 / 函数 / 方法
+蛇形命名：user_name、get_user_info()
+私有成员：前缀单下划线 _internal_cache
+3.4 类
+大驼峰：UserService、OrderModel
+异常类：必须以 Error 结尾 UserNotFoundError
+3.5 常量
+全大写 + 下划线：MAX_RETRY_COUNT = 3
+3.6 全局禁止
+禁止中文、拼音、空格、特殊符号命名
+禁止单字符变量（除循环 i/j/k）
+禁止无意义名称：data、list、temp
+4. 代码格式规范（强制）
+缩进：4 个空格，禁止 Tab
+行宽：88 字符
+逗号：末尾必须加逗号
+注释：只说明 “为什么”，不说明 “做什么”
+导入分组（组间空一行）：
+标准库（os/sys/datetime）
+第三方库（pydantic/fastapi）
+本地项目包
+禁止行尾空格、多余空行
+禁止一行多语句
+5. 类型提示规范（100% 覆盖）
+所有函数必须标注：参数类型 + 返回值类型
+所有类属性必须标注类型
+容器必须使用泛型：list[int]/dict[str, User]
+可选值必须写：str | None
+禁止无类型公共接口
+6. 函数与逻辑规范（强制）
+函数行数 ≤ 25 行
+参数个数 ≤ 3 个（超了用 Pydantic 模型）
+嵌套深度 ≤ 2 层（if/for/while）
+一个函数只做一件事
+禁止裸 except:，必须精确捕获异常
+禁止 print()，必须使用 logging
+禁止魔法数字、硬编码配置
+禁止文件行数 > 300 行
+7. 目录结构规范（唯一标准）
+plaintext
+项目根目录/
+├── pyproject.toml    # 唯一配置文件
+├── README.md
+├── .gitignore
+├── .env              # 不上传 Git
+├── src/
+│   └── 项目名/       # 包名 = 项目名
+│       ├── core/     # 纯业务逻辑，无IO
+│       ├── services/ # 外部交互：DB/API/文件
+│       ├── models/   # Pydantic 数据模型
+│       ├── api/      # 接口路由
+│       ├── utils/    # 拆分工具：date/encrypt/validate
+│       ├── constants/ # 常量
+│       ├── config.py # 配置
+│       ├── main.py   # 入口
+│       └── __main__.py
+├── tests/            # 与 src 完全镜像结构
+├── scripts/          # 部署/脚本
+├── data/             # 数据文件
+└── docs/             # 文档
+强制铁律
+必须使用 src 布局
+包名必须 = 项目名
+tests 必须镜像 src
+目录深度 ≤ 3 层
+一个目录对应一个业务域
+禁止大杂烩文件 utils.py
+8. 目录 / 文件生成代码规范（Python）
+8.1 创建目录（唯一标准）
+python
+运行
+from pathlib import Path
+target_dir = Path(__file__).parent / "output" / "data"
+target_dir.mkdir(parents=True, exist_ok=True)
+必须用 pathlib、parents=True、exist_ok=True
+8.2 写入文件（唯一标准）
+python
+运行
+file_path = target_dir / "result.txt"
+file_path.write_text("内容", encoding="utf-8")
+
+# 大文件
+with open(file_path, "w", encoding="utf-8") as f:
+    f.write("内容")
+8.3 临时文件 / 目录
+python
+运行
+from tempfile import TemporaryDirectory
+with TemporaryDirectory() as tmp_dir:
+    # 业务逻辑
+必须自动清理，禁止手动创建临时文件
+9. 绝对禁止清单（团队红线）
+代码禁止
+禁止 eval()/exec()
+禁止硬编码密钥、IP、密码、配置
+禁止循环导入
+禁止嵌套 > 2 层
+禁止无注释的复杂逻辑
+禁止忽略异常、空 except
+文件 / 目录禁止
+禁止中文 / 拼音命名
+禁止上传 .env、密钥、虚拟环境
+禁止上传 __pycache__、.pyc
+禁止目录深度 > 4 层
+禁止单个文件 > 300 行
+10. 工具链强制标准
+格式化 / Lint：Ruff
+类型检查：mypy
+测试：pytest
+依赖管理：uv
+提交校验：pre-commit
+配置文件：仅使用 pyproject.toml

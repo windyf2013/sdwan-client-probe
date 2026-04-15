@@ -1,0 +1,144 @@
+{
+  "report_id": "702781fd",
+  "timestamp": "2026-04-15 09:08:58",
+  "target": "baidu.com",
+  "system": {
+    "interfaces": [
+      {
+        "name": "以太网 4",
+        "description": "以太网 4",
+        "mac_address": "04-D9-C8-6C-86-AE",
+        "ip_addresses": [
+          "10.10.100.161",
+          "172.16.72.161"
+        ],
+        "gateways": [
+          "10.10.100.1"
+        ],
+        "dns_servers": [
+          "10.10.25.1"
+        ],
+        "is_dhcp": false,
+        "status": "Connected",
+        "is_primary": false
+      },
+      {
+        "name": "以太网 5",
+        "description": "以太网 5",
+        "mac_address": "68-DD-B7-6C-EE-B8",
+        "ip_addresses": [
+          "192.168.1.10",
+          "192.168.33.10",
+          "192.168.46.10"
+        ],
+        "gateways": [],
+        "dns_servers": [],
+        "is_dhcp": false,
+        "status": "Connected",
+        "is_primary": false
+      }
+    ],
+    "primary_interface": {
+      "name": "以太网 4",
+      "description": "以太网 4",
+      "mac_address": "04-D9-C8-6C-86-AE",
+      "ip_addresses": [
+        "10.10.100.161",
+        "172.16.72.161"
+      ],
+      "gateways": [
+        "10.10.100.1"
+      ],
+      "dns_servers": [
+        "10.10.25.1"
+      ],
+      "is_dhcp": false,
+      "status": "Connected",
+      "is_primary": false
+    },
+    "proxy_enabled": false,
+    "proxy_server": "",
+    "firewall_enabled": false,
+    "has_multiple_gateways": false,
+    "default_route_exists": true,
+    "gateway_reachable": true,
+    "dns_resolution_working": true,
+    "config_score": 100.0,
+    "issues": []
+  },
+  "local_config": null,
+  "network_context": null,
+  "app_probes": [],
+  "cross_border_results": {
+    "overall_score": 86.66666666666667,
+    "summary": "跨境链路质量良好",
+    "targets": [
+      {
+        "target": "baidu.com",
+        "avg_latency": 20.2,
+        "jitter": 0.3333333333333333,
+        "packet_loss": 0.0,
+        "stability_score": 85.0,
+        "issues": [
+          {
+            "level": "warning",
+            "category": "dns_pollution",
+            "message": "检测到 DNS 解析差异 (2 个不同IP)",
+            "detail": "不同DNS解析结果不一致: {'8.8.8.8': '110.242.74.102', '1.1.1.1': '111.63.65.247', '223.5.5.5': '110.242.74.102'}",
+            "suggestion": "如果是国内CDN域名，不同DNS返回不同IP属正常现象；若访问异常，请尝试更换本地DNS为 223.5.5.5 或 114.114.114.114"
+          },
+          {
+            "level": "error",
+            "category": "route",
+            "message": "路由追踪超时",
+            "suggestion": "中间节点可能禁用了ICMP，或网络严重拥塞"
+          }
+        ]
+      },
+      {
+        "target": "youtube.com",
+        "avg_latency": 108.5,
+        "jitter": 5.666666666666667,
+        "packet_loss": 0.0,
+        "stability_score": 85.0,
+        "issues": [
+          {
+            "level": "warning",
+            "category": "dns_pollution",
+            "message": "检测到 DNS 解析差异 (3 个不同IP)",
+            "detail": "不同DNS解析结果不一致: {'8.8.8.8': '174.132.167.252', '1.1.1.1': '31.13.92.37', '223.5.5.5': '142.250.105.91'}",
+            "suggestion": "如果是国内CDN域名，不同DNS返回不同IP属正常现象；若访问异常，请尝试更换本地DNS为 223.5.5.5 或 114.114.114.114"
+          },
+          {
+            "level": "error",
+            "category": "route",
+            "message": "路由追踪超时",
+            "suggestion": "中间节点可能禁用了ICMP，或网络严重拥塞"
+          }
+        ]
+      },
+      {
+        "target": "tiktok.com",
+        "avg_latency": 108.2,
+        "jitter": 10.666666666666666,
+        "packet_loss": 0.0,
+        "stability_score": 90.0,
+        "issues": [
+          {
+            "level": "warning",
+            "category": "dns_pollution",
+            "message": "检测到 DNS 解析差异 (3 个不同IP)",
+            "detail": "不同DNS解析结果不一致: {'8.8.8.8': '69.171.235.22', '1.1.1.1': '174.132.167.252', '223.5.5.5': '23.32.39.148'}",
+            "suggestion": "如果是国内CDN域名，不同DNS返回不同IP属正常现象；若访问异常，请尝试更换本地DNS为 223.5.5.5 或 114.114.114.114"
+          }
+        ]
+      }
+    ]
+  },
+  "overall_score": 92.0,
+  "environment_score": 100,
+  "connectivity_score": 86.66666666666667,
+  "conclusion": "✅ 所有检测项正常",
+  "issues": [],
+  "all_ok": true
+}
