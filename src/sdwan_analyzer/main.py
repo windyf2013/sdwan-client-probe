@@ -3,6 +3,7 @@ import msvcrt
 import ctypes
 import sys
 import logging
+import traceback
 from dataclasses import asdict
 
 # ================= 全局导入区域 =================
@@ -14,6 +15,8 @@ from sdwan_analyzer.config import BUSINESS_TARGETS, DEFAULT_PORT
 from sdwan_analyzer.core.mtr import run_mtr
 from sdwan_analyzer.core.ping import ping_check
 from sdwan_analyzer.core.tracert import run_tracert
+# 3.5 重构新增模块
+from sdwan_analyzer.engine.smart_scheduler import DiagnosticScheduler
 
 # 3. 业务模块
 from sdwan_analyzer.models.diagnose import FinalReport, Issue
@@ -24,8 +27,8 @@ from sdwan_analyzer.modules.local_net_config import (
     run_local_net_config_check,
     print_local_config_report
 )
-from sdwan_analyzer.modules.cross_border_test import run_cross_border_test, get_cross_border_report, CrossBorderTestResult
-from sdwan_analyzer.modules.report import generate_report, export_report_to_file
+from sdwan_analyzer.modules.cross_border_test import run_cross_border_test
+from sdwan_analyzer.modules.net_diagnostic import net_waterfall_info_default
 
 # 4. 可选模块
 try:
@@ -55,12 +58,31 @@ def press_any_key():
     getch()
     print()
 
-def safe_input(prompt: str, default: str = "") -> str:
-    """兼容无stdin环境的输入函数。"""
+def safe_input(prompt: str, default: str = "", allow_empty: bool = False) -> str:
+    """兼容无stdin环境的输入函数。
+    
+    Args:
+        prompt: 提示文本
+        default: 默认值（用于参数项）
+        allow_empty: 是否允许空输入（True=使用默认值，False=重新等待输入）
+    """
     try:
-        return input(prompt).strip()
+        while True:
+            user_input = input(prompt).strip()
+            
+            if user_input == "":
+                if allow_empty:
+                    # 参数项：空值使用默认值
+                    return default
+                else:
+                    # 菜单项：空值重新等待输入
+                    print("  请重新输入...")
+                    continue
+            
+            return user_input
+            
     except (EOFError, RuntimeError, OSError):
-        print("\n⚠️ 当前运行环境不可交互，已使用默认选项。")
+        print("\n[WARN] 当前运行环境不可交互，已使用默认选项。")
         return default
 
 def is_interactive() -> bool:
@@ -80,8 +102,9 @@ def print_menu():
     print("【功能列表】")
     print("1. 客户端一键检测")
     print("2. 常用测试工具")
-    #print("3. 系统信息查看")
-    #print("4. 诊断报告管理")
+    print("3. 跨境链路专项测试")  # 新增一级菜单项
+    #print("4. 系统信息查看")
+    #print("5. 诊断报告管理")
     print("")
     print("0. 退出工具")
     print("=====================================")
@@ -97,6 +120,7 @@ def print_test_tools_menu():
     print("3. TCP 端口测试")
     print("4. DNS 解析测试")
     print("5. MTU 探测")
+    print("6. 互联网仿真瀑布流信息")
     print("")
     print("0. 返回主菜单")
     print("=====================================")
@@ -105,12 +129,12 @@ def run_test_tools():
     """运行常用测试工具"""
     while True:
         print_test_tools_menu()
-        choice = safe_input("请输入工具编号（0-5）：", "0")
+        choice = safe_input("请输入工具编号（0-6）：", "0", allow_empty=False)
         
         if choice == "0":
             break
         elif choice == "1":
-            target = safe_input("请输入目标IP/域名：")
+            target = safe_input("请输入目标IP/域名：", allow_empty=True)
             if target:
                 try:
                     # 现在可以直接使用全局导入的 ping_check
@@ -124,18 +148,18 @@ def run_test_tools():
                 except Exception as e:
                     print(f"⚠️ Ping 失败: {e}")
         elif choice == "2":
-            target = safe_input("请输入目标IP/域名：")
+            target = safe_input("请输入目标IP/域名：", allow_empty=True)
             if target:
                 try:
                     run_mtr(target)
                 except Exception as e:
                     print(f"⚠️ MTR 失败: {e}")
         elif choice == "3":
-            target = safe_input("请输入目标IP/域名：")
+            target = safe_input("请输入目标IP/域名：", allow_empty=True)
             if target:
                 port = 443
                 try:
-                    port_input = safe_input("请输入端口号[默认443]: ", "443")
+                    port_input = safe_input("请输入端口号[默认443]: ", "443", allow_empty=True)
                     port = int(port_input) if port_input else 443
                 except:
                     port = 443
@@ -159,137 +183,110 @@ def run_test_tools():
                     print(f"MTU 正常 : {mtu >= 1400}")
                 except Exception as e:
                     print(f"⚠️ MTU探测失败: {e}")
+        elif choice == "6":
+            target = safe_input("请输入域名：")
+            if target:
+                try:
+                    result = net_waterfall_info_default(target)
+                except Exception as e:
+                    print(f"⚠️ 信息获取失败: {e}")
         else:
             print("输入有误，请重新输入")
         
         press_any_key()
 
-def run_one_click_diagnosis():
+
+
+def run_cross_border_detection():
+    """跨境链路专项测试 - 包含MTU探测等深度测试功能"""
     print("==================================================")
-    print("          客户端一键检测")
+    print("          跨境链路专项测试")
     print("==================================================")
-
-    # 1. 统一系统环境与配置检测
-    print_section("1. 本机环境健康度检测")
-    from sdwan_analyzer.modules.system_collector import collect_system_environment
-    env_res = collect_system_environment()
     
-    # --- 子模块 A: 静态配置摘要 ---
-    print("\n📋 【静态配置检查】")
-    if env_res.primary_interface:
-        nic = env_res.primary_interface
-        print(f"  主网卡：{nic.name} ({nic.status})")
-        print(f"  IPv4：{', '.join(nic.ip_addresses)}")
-        print(f"  网关：{', '.join(nic.gateways)}")
-        print(f"  DNS：{', '.join(nic.dns_servers)}")
-    else:
-        print("  ❌ 未检测到有效主网卡")
-
-    print(f"  系统代理：{'⚠️ 开启' if env_res.proxy_enabled else '✅ 关闭'}")
-    print(f"  防火墙：{'⚠️ 开启' if env_res.firewall_enabled else '✅ 关闭'}")
-    print(f"  多网关冲突：{'⚠️ 是' if env_res.has_multiple_gateways else '✅ 否'}")
-
-    # --- 子模块 B: 动态连通性摘要 ---
-    print("\n🔌 【动态连通性检查】")
-    print(f"  默认路由：{'✅ 存在' if env_res.default_route_exists else '❌ 缺失'}")
-    print(f"  网关可达：{'✅ 是' if env_res.gateway_reachable else '❌ 否'}")
-    print(f"  DNS解析：{'✅ 正常' if env_res.dns_resolution_working else '❌ 失败'}")
+    # 获取目标列表
+    from sdwan_analyzer.config import BUSINESS_TARGETS
+    if not BUSINESS_TARGETS:
+        print("[ERROR] 未配置业务目标")
+        return
     
-    # --- 子模块 C: 问题汇总 ---
-    if env_res.issues:
-        print(f"\n⚠️  发现 {len(env_res.issues)} 个问题：")
-        for issue in env_res.issues:
-            icon = "❌" if issue.level == "error" else "⚠️"
-            print(f"  {icon} [{issue.category}] {issue.message}")
-    else:
-        print("\n✅ 本机环境配置与连通性正常")
-
-    # 3. 网络特征/上下文检测
-    print_section("3. 网络特征分析")
-    network_context = None
-    print("  ℹ️ 网络拓扑特征分析已完成 (基础模式)")
-
-    # 4. 业务可用性测试
-    print_section("4. 业务可用性测试")
-    all_results = []
-    # 修复点：现在 BUSINESS_TARGETS 是全局可见的
-    business_targets = BUSINESS_TARGETS
-
-    for target, business_type in business_targets:
-        print(f"\n🔍 检测 {business_type}：{target}")
-        
-        # Ping 探测
-        ping_ok = False
-        ping_avg_rtt = 0.0
-        try:
-            ping_result = ping_check(target)
-            ping_ok = ping_result.is_success
-            ping_avg_rtt = ping_result.avg_rtt
-            print(f"  Ping: {'✅ 可达' if ping_ok else '❌ 不可达'} ({ping_avg_rtt:.1f}ms)")
-        except Exception as e:
-            print(f"  Ping: ❌ 失败 ({e})")
-        
-        # 应用层探测
-        app_res = None
-        try:
-            app_res = run_app_probe(target, 443)
-            print(f"  TCP 443: {'✅ 开放' if app_res.tcp_open else '❌ 关闭'}")
-            print(f"  HTTPS: {'✅ 可用' if app_res.http_available else '❌ 不可用'}")
-            print(f"  MTU: {app_res.detected_mtu} ({'✅ 正常' if app_res.mtu_normal else '⚠️ 偏低'})")
-        except Exception as e:
-            print(f"  应用探测：❌ 失败 ({e})")
-        
-        all_results.append({
-            "target": target,
-            "business_type": business_type,
-            "ping_reachable": ping_ok,
-            "ping_avg_rtt": ping_avg_rtt,
-            "app_res": asdict(app_res) if app_res and hasattr(app_res, '__dataclass_fields__') else app_res
-        })
-
-    # 5. 跨境链路专项测试
-    print_section("5. 跨境链路专项测试")
-    target_list = [t[0] for t in business_targets]
-    cross_border_result = run_cross_border_test(target_list)
+    target_list = [item['target'] for item in BUSINESS_TARGETS]
     
-    # 6. 生成综合报告
-    print_section("6. 生成诊断报告")
     try:
-        report = generate_report(
-            env_result=env_res,
-            network_context=network_context,
-            cross_border_results=get_cross_border_report(cross_border_result),
-            business_results=all_results,
-            target=business_targets[0][0] if business_targets else ""
-        )
+        # 执行跨境链路测试
+        cross_result = run_cross_border_test(target_list)
         
-        print("\n📊 检测报告摘要")
-        print("=" * 60)
-        print(f"  报告 ID: {report.report_id}")
-        print(f"  生成时间：{report.timestamp}")
-        print(f"  整体评分：{report.overall_score:.1f}")
-        print(f"  环境评分：{report.environment_score:.1f}")
-        print(f"  连通评分：{report.connectivity_score:.1f}")
-        print(f"\n  检测结论：{report.conclusion}")
+        # 执行MTU专项探测
+        print_section("[MTU] MTU路径探测专项测试")
+        mtu_results = []
+        for target in target_list[:3]:  # 限制MTU探测的目标数量
+            try:
+                mtu = detect_mtu(target)
+                status = "[OK] 正常" if mtu >= 1400 else "[ERROR] 偏低"
+                print(f"  {target}: MTU={mtu} {status}")
+                mtu_results.append({"target": target, "mtu": mtu, "status": status})
+            except Exception as e:
+                print(f"  {target}: [ERROR] MTU探测失败")
+                mtu_results.append({"target": target, "mtu": 0, "status": "失败"})
         
-        if report.issues:
-            print(f"\n⚠️  发现问题：{len(report.issues)}")
-            for i, issue in enumerate(report.issues[:5], 1):
-                level_icon = {"error": "❌", "warning": "⚠️", "info": "ℹ️"}.get(issue.level, "•")
-                print(f"  {level_icon} [{issue.category}] {issue.message}")
-            if len(report.issues) > 5:
-                print(f"  ... 还有 {len(report.issues) - 5} 个问题，详见报告文件")
+        # 输出专项报告
+        _print_cross_border_summary(cross_result, mtu_results)
         
-        export_report_to_file(report)
+        # 生成HTML报告
+        print_section("[报告] 生成跨境链路专项报告")
+        try:
+            from sdwan_analyzer.modules.report import collect_cross_border_report_data, export_cross_border_html_report
+            
+            # 收集报告数据并导出HTML报告
+            report = collect_cross_border_report_data(cross_result, mtu_results)
+            html_success = export_cross_border_html_report(report, cross_result)
+            
+            if html_success:
+                print("[OK] 跨境链路HTML报告生成成功")
+            else:
+                print("⚠ 跨境链路HTML报告生成失败")
+                
+        except Exception as report_error:
+            print(f"⚠ HTML报告生成异常: {report_error}")
         
     except Exception as e:
-        print(f"❌ 报告生成异常：{e}")
-        import traceback
+        print(f"[ERROR] 跨境链路测试异常: {e}")
         traceback.print_exc()
-
-    print("\n🎉 诊断全部完成！")
+    
     if is_interactive():
         press_any_key()
+
+def _print_cross_border_summary(cross_result, mtu_results):
+    """输出跨境链路专项测试摘要"""
+    print_section("[SUMMARY] 跨境链路专项测试报告")
+    print("=" * 60)
+    
+    # 链路质量摘要
+    print("〓链路质量评估：")
+    for link in cross_result.link_results:
+        status_icon = "[OK]" if link.stability_score >= 80 else ("[WARN]" if link.stability_score >= 60 else "[ERROR]")
+        print(f"  {link.target:<25} | 评分: {link.stability_score:5.1f} {status_icon} | 延迟: {link.avg_latency:4.0f}ms | 丢包: {link.packet_loss:4.1f}%")
+    
+    # MTU探测摘要
+    print("")
+    print("〓MTU路径探测：")
+    for mtu_info in mtu_results:
+        print(f"  {mtu_info['target']:<25} | MTU: {mtu_info['mtu']:4d} | {mtu_info['status']}")
+    
+    # 整体评估
+    print("")
+    print(f"〓整体评估：{cross_result.summary}")
+    print(f"〓总体评分：{cross_result.overall_score:.1f}/100")
+
+
+
+def _print_simple_summary(results):
+    """简化结果摘要输出"""
+    print("\n[SUMMARY] 简化检测摘要")
+    print("=" * 40)
+    reachable_count = sum(1 for r in results if r.basic_reachable)
+    print(f"  检测目标：{len(results)} 个")
+    print(f"  可达目标：{reachable_count} 个")
+    print(f"  深度分析：{sum(1 for r in results if r.deep_check_completed)} 个")
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -317,6 +314,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     mtu_p = tools_sub.add_parser("mtu", help="MTU 探测")
     mtu_p.add_argument("target")
 
+    cross_border_p = tools_sub.add_parser("cross-border", help="跨境链路专项测试")
+
     sub.add_parser("system-info", help="系统信息查看（非交互）")
 
     return parser.parse_args(argv)
@@ -335,8 +334,8 @@ def cli(argv: list[str] | None = None) -> int:
         return 1
 
     if args.cmd == "one-click":
-        # 如果需要支持命令行一键检测，可以调用 run_one_click_diagnosis()
-        run_one_click_diagnosis()
+        # 运行完整的一键检测功能
+        run_diagnosis()
         return 0
 
     if args.cmd == "system-info":
@@ -359,8 +358,414 @@ def cli(argv: list[str] | None = None) -> int:
         if args.tool == "mtu":
             detect_mtu(args.target)
             return 0
+        if args.tool == "cross-border":
+            from sdwan_analyzer.config import BUSINESS_TARGETS
+            target_list = [item['target'] for item in BUSINESS_TARGETS]
+            run_cross_border_detection()
+            return 0
 
     return 2
+
+
+
+def run_diagnosis():
+    """客户端一键检测 - 完整功能并按network_result.txt标准化格式输出"""
+    
+    try:
+        # 导入所有必要的模块
+        from sdwan_analyzer.modules.system_collector import collect_system_environment
+        from sdwan_analyzer.config import BUSINESS_TARGETS
+        from sdwan_analyzer.core.ping import ping_check
+        from sdwan_analyzer.core.tracert import run_tracert
+        from sdwan_analyzer.modules.app_probe import run_app_probe
+        from sdwan_analyzer.modules.cross_border_test import run_cross_border_test
+        import subprocess
+        import time
+        
+        # 记录开始时间
+        start_time = time.time()
+        
+        # 收集系统环境信息
+        print("正在收集系统环境信息...")
+        env_res = collect_system_environment()
+        
+        # =============== 第一部分：系统环境基础检测 ===============
+        
+        print("【1. 系统环境基础检测】")
+        print("*********************************************************")
+        
+        enabled_nics = [nic for nic in env_res.interfaces if nic.status == "Connected" and nic.ip_addresses]
+        disabled_nics = [nic for nic in env_res.interfaces if nic not in enabled_nics]
+        
+        print(f"启用网卡数量：{len(enabled_nics)}")
+        print(f"未启用网卡数量：{len(disabled_nics)}")
+        print("*********************************************************")
+        print("")
+        
+        if enabled_nics:
+            print("启用网卡：")
+            for nic in enabled_nics:
+                # 显示详细的网卡信息：名称、IP、网关、DNS、MAC
+                adapter_type = "无线局域网适配器" if "wireless" in nic.description.lower() else "以太网适配器"
+                print(f"  {adapter_type} {nic.name}:")
+                print(f"    IP地址: {', '.join(nic.ip_addresses)}")
+                if nic.gateways:
+                    print(f"    网关: {', '.join(nic.gateways)}")
+                if nic.dns_servers:
+                    print(f"    DNS: {', '.join(nic.dns_servers)}")
+                if nic.mac_address:
+                    print(f"    MAC: {nic.mac_address}")
+        else:
+            print("启用网卡：无")
+            
+        print("")
+        
+        if disabled_nics:
+            print("未启用网卡：")
+            for nic in disabled_nics:
+                adapter_type = "无线局域网适配器" if "wireless" in nic.description.lower() else "以太网适配器"
+                status_info = f" ({nic.status})" if nic.status != "Connected" else ""
+                print(f"  - {adapter_type} {nic.name}{status_info}")
+        else:
+            print("未启用网卡：无")
+        
+        print("")
+        
+        # =============== 第二部分：网络安全与配置检测 ===============
+        
+        # 多网关检测告警
+        if env_res.has_multiple_gateways:
+            all_gateways = []
+            for nic in env_res.interfaces:
+                all_gateways.extend(nic.gateways)
+            unique_gws = list(set(all_gateways))
+            print("【多网关告警】")
+            print("*********************************************************")
+            print(f"检测到 {len(unique_gws)} 个活跃网关: {', '.join(unique_gws)}")
+            print("⚠️ 多个网关可能导致路由冲突")
+            print("*********************************************************")
+            print("")
+        
+        # 防火墙状态
+        print("【防火墙状态】")
+        print("*********************************************************")
+        firewall_status = "开启" if env_res.firewall_enabled else "关闭"
+        print(f"Windows防火墙: {firewall_status}")
+        print("*********************************************************")
+        print("")
+        
+        # 代理状态
+        print("【代理状态】")
+        print("*********************************************************")
+        proxy_status = "开启" if env_res.proxy_enabled else "关闭"
+        if env_res.proxy_enabled and env_res.proxy_server:
+            print(f"系统代理: {proxy_status} ({env_res.proxy_server})")
+        else:
+            print(f"系统代理: {proxy_status}")
+        print("*********************************************************")
+        print("")
+        
+        # 2. DNS服务器地址
+        print("【2. DNS服务器地址】")
+        print("*********************************************************")
+        dns_gateway_warning = []
+        if env_res.primary_interface and env_res.primary_interface.dns_servers:
+            dns_servers = env_res.primary_interface.dns_servers
+            for dns in dns_servers:
+                print(f"DNS服务器：{dns}")
+                
+                # 检查DNS服务器与网关地址差异
+                if env_res.primary_interface.gateways:
+                    gateways = env_res.primary_interface.gateways
+                    # 如果DNS服务器地址不是网关地址，收集告警信息
+                    for gw in gateways:
+                        # 检查是否是同一子网的IP（检查前三个八位组是否匹配）
+                        gw_prefix = '.'.join(gw.split('.')[:3])
+                        dns_prefix = '.'.join(dns.split('.')[:3])
+                        if gw_prefix != dns_prefix:
+                            dns_gateway_warning.append(f"DNS服务器{dns}与网关{gw}不在相同网段")
+                            
+        else:
+            print("DNS服务器：未配置")
+        print("*********************************************************")
+        print("")
+        
+        # 3. 缺省路由
+        print("【3. 缺省路由】")
+        print("*********************************************************")
+        
+        # 检查活动的默认路由，过滤掉接口名称和标识，只显示核心路由信息
+        unique_default_routes = set()
+        try:
+            route_out = subprocess.check_output(["route", "print", "0.0.0.0"], text=True, encoding="gbk", errors="ignore")
+            lines = route_out.split('\n')
+            
+            for line in lines:
+                if '0.0.0.0' in line and len(line.split()) >= 5:
+                    parts = line.split()
+                    # 只提取网络目标、网络掩码、网关、接口IP、跃点数
+                    if parts[0] == '0.0.0.0' and parts[1] == '0.0.0.0':
+                        core_info = f"{parts[0]}  {parts[1]}  {parts[2]}  {parts[3]}  {parts[4]}"
+                        unique_default_routes.add(core_info)
+        except Exception as e:
+            print(f"路由查询失败: {e}")
+            
+        # 转换为列表并排序
+        default_routes = sorted(list(unique_default_routes))
+        
+        print(f"缺省路由数量：{len(default_routes)}")
+        print("*********************************************************")
+        
+        if default_routes:
+            for route in default_routes:
+                print(f"  {route}")
+        else:
+            print("  无缺省路由")
+        
+        print("")
+        
+        # =============== 第二部分：基本网络连通性检测 ===============
+        
+        # =============== 第三部分：网络连通性检测 ===============
+        
+        # 4. Ping 网关 (优先检测内网网关)
+        if env_res.primary_interface and env_res.primary_interface.gateways:
+            primary_gateway = env_res.primary_interface.gateways[0]
+            print("【4. Ping 网关检测】")
+            print("*********************************************************")
+            print("正在测试到网关的连通性...")
+            gw_ping_result = ping_check(primary_gateway)
+            if gw_ping_result.is_success:
+                print(f"数据包: 已发送 = 4，已接收 = {gw_ping_result.received}，丢失 = {gw_ping_result.loss} ({gw_ping_result.loss}% 丢失)，")
+                print(f"最短 = {gw_ping_result.min_rtt}ms，最长 = {gw_ping_result.max_rtt}ms，平均 = {gw_ping_result.avg_rtt}ms")
+            print("*********************************************************")
+            if gw_ping_result.is_success:
+                print(f"ping {primary_gateway} 结果：通")
+            else:
+                print(f"ping {primary_gateway} 结果：不通")
+            print("*********************************************************")
+            print("")
+        
+
+        
+
+        
+        # =============== 第四部分：业务连通性检测 ===============
+        
+        print("【5. 业务连通性检测】")
+        print("*********************************************************")
+        print("正在执行业务连通性检测...")
+        print("*********************************************************")
+        print("")
+        
+        # 执行业务连通性检测
+        business_results = []
+        if BUSINESS_TARGETS:
+            for target_config in BUSINESS_TARGETS:
+                target = target_config.get("target", "")
+                if target:
+                    print(f"  {target}:")
+                    
+                    # 🚀 优化：先执行Ping检测，如果不通则不进行后续测试
+                    # 使用智能超时配置，区分国内和跨境目标
+                    is_crossborder_target = any(domain in target.lower() for domain in ['youtube.com', 'tiktok.com', 'google.com'])
+                    business_ping = ping_check(target, is_crossborder=is_crossborder_target)
+                    
+                    # 应用层检测：如果Ping不通，直接跳过TCP和HTTP测试
+                    app_result = None
+                    app_status = "未检测"
+                    
+                    if business_ping.is_success:
+                        # Ping可达才进行应用层检测
+                        try:
+                            app_result = run_app_probe(target)
+                            app_status = "正常" if app_result.tcp_open and app_result.http_available else "异常"
+                        except Exception as e:
+                            app_result = None
+                            app_status = f"检测失败: {str(e)}"
+                    else:
+                        # Ping不通，直接标记应用状态为不可达
+                        app_status = "Ping不可达，跳过详细检测"
+                    
+                    # 记录结果
+                    if business_ping.is_success:
+                        ping_status = f"{business_ping.avg_rtt}ms, 丢包{business_ping.loss}%"
+                    else:
+                        ping_status = "不通"
+                        
+                    business_results.append({
+                        "target": target,
+                        "ping_status": ping_status,
+                        "ping_reachable": business_ping.is_success,
+                        "app_status": app_status,
+                        "app_res": app_result,
+                        "description": target_config.get("description", "")
+                    })
+                    
+                    print(f"    Ping状态: {ping_status}")
+                    print(f"    应用状态: {app_status}")
+                    if target_config.get("description"):
+                        print(f"    应用描述: {target_config['description']}")
+                    print("")
+        else:
+            print("  未配置业务目标")
+        
+        print("")
+        
+        # =============== 第四部分：检测总结 ===============
+        
+        print("【6. 检测总结】")
+        print("*********************************************************")
+        
+        # 优化评分逻辑：动态计算实际执行的测试项目
+        test_categories = []
+        passed_ratio = 0.0
+        
+        # 1. 基础网络环境检测（权重40%）
+        base_tests = []
+        
+        # 网关连通性检测（如果执行了）
+        if env_res.primary_interface and env_res.primary_interface.gateways and 'gw_ping_result' in locals():
+            base_tests.append({
+                "name": "网关连通性",
+                "passed": gw_ping_result.is_success,
+                "weight": 0.15
+            })
+        
+        # DNS配置检测
+        if env_res.primary_interface and env_res.primary_interface.dns_servers:
+            base_tests.append({
+                "name": "DNS配置", 
+                "passed": True,  # 只要配置了就通过
+                "weight": 0.10
+            })
+        
+        # 缺省路由检测
+        if len(default_routes) > 0:
+            base_tests.append({
+                "name": "缺省路由",
+                "passed": True,  # 只要存在路由就通过
+                "weight": 0.15
+            })
+        
+        test_categories.append({"name": "基础网络环境", "tests": base_tests})
+        
+        # 2. 业务连通性检测（权重60%，如果存在业务目标）
+        business_tests = []
+        
+        if business_results:
+            for result in business_results:
+                business_tests.append({
+                    "name": f"{result['target']}连通性",
+                    "passed": result['ping_reachable'],
+                    "weight": 0.6 / len(business_results)  # 平均分配权重
+                })
+            
+            test_categories.append({"name": "业务连通性", "tests": business_tests})
+        
+        # 计算综合评分
+        total_weight = 0.0
+        total_score = 0.0
+        
+        for category in test_categories:
+            for test in category['tests']:
+                total_weight += test['weight']
+                if test['passed']:
+                    total_score += test['weight']
+        
+        # 避免除零错误
+        if total_weight > 0:
+            success_rate = (total_score / total_weight) * 100
+        else:
+            success_rate = 0
+        
+        # 显示更详细的评分信息
+        print(f"综合检测通过率：{success_rate:.1f}%")
+        print("检测项目详情：")
+        
+        executed_tests = sum(len(cat['tests']) for cat in test_categories)
+        passed_tests = sum(1 for cat in test_categories for test in cat['tests'] if test['passed'])
+        
+        print(f"  实际执行测试数：{passed_tests}/{executed_tests}")
+        for category in test_categories:
+            if category['tests']:  # 只显示实际执行的类别
+                cat_passed = sum(1 for test in category['tests'] if test['passed'])
+                print(f"  {category['name']}：{cat_passed}/{len(category['tests'])}")
+        
+        # 生成综合结论
+        has_proxy = env_res.proxy_enabled
+        has_multiple_gw = env_res.has_multiple_gateways
+        has_firewall = env_res.firewall_enabled
+        
+        status_notes = []
+        if has_proxy:
+            status_notes.append("系统代理已开启")
+        if has_multiple_gw:
+            status_notes.append("存在多网关路由")
+        if has_firewall:
+            status_notes.append("防火墙已开启")
+        
+        # 添加DNS网关差异告警
+        if dns_gateway_warning:
+            status_notes.extend(dns_gateway_warning)
+        
+        if success_rate >= 90:
+            conclusion = "网络状态良好"
+        elif success_rate >= 70:
+            conclusion = "网络基本正常"
+        else:
+            conclusion = "网络存在较多问题"
+        
+        if status_notes:
+            conclusion += f"，注意: {'，'.join(status_notes)}"
+            
+        print(f"检测结论：{conclusion}")
+        
+        # 计算总耗时
+        end_time = time.time()
+        duration = end_time - start_time
+        print(f"检测耗时：{duration:.1f}秒")
+        
+        print("*********************************************************")
+        
+        # =============== 第六部分：生成和保存详细报告 ===============
+        
+        print("【7. 报告生成】")
+        print("*********************************************************")
+        print("正在生成详细报告...")
+        
+        try:
+            # 引入HTML报告生成模块
+            from sdwan_analyzer.modules.report import collect_report_data, export_html_report
+            
+            # 生成HTML报告数据
+            print("收集报告数据...")
+            report = collect_report_data(env_res, business_results)
+            
+            # 导出HTML报告
+            print("生成HTML格式报告...")
+            html_success = export_html_report(report)
+            
+            if html_success:
+                print("[OK] HTML格式报告生成成功")
+            else:
+                print("⚠ HTML格式报告生成失败")
+                
+        except Exception as report_error:
+            print(f"报告生成失败: {report_error}")
+            print("基础检测完成")
+            
+        print("*********************************************************")
+        
+        return True
+        
+    except Exception as e:
+        print(f"诊断执行失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+        return False
+
 
 def main():
     # 1. 权限检查
@@ -383,26 +788,34 @@ def main():
     #    ]
     #)
     
-    #logging.info(f"日志文件已创建: {log_file}")
+    #logging.info(f"日志文件已创建：{log_file}")
     
     print("SDWAN Analyzer 启动...")
     
     # 3. 主循环
     while True:
         print_menu()
-        choice = safe_input("请输入功能编号（0-5）：", "0")
+        choice = safe_input("请输入功能编号（0-5）：", "0", allow_empty=False)
         
         if choice == "0":
             print("退出工具，再见！")
             break
         elif choice == "1":
-            run_one_click_diagnosis()
+            # ✅ 彻底解决方案：完全抛弃智能模式和传统模式的区分
+            print("\n==================================================")
+            print("          客户端一键检测")
+            print("==================================================")
+            
+            # 🔥 唯一执行路径：run_diagnosis()
+            run_diagnosis()
         elif choice == "2":
             run_test_tools()
         elif choice == "3":
+            run_cross_border_detection()
+        elif choice == "4":
             print("系统信息查看功能开发中...")
             press_any_key()
-        elif choice == "4":
+        elif choice == "5":
             print("报告管理功能开发中...")
             press_any_key()
         else:

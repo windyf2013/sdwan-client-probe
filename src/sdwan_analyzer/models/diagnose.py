@@ -1,7 +1,7 @@
 # d:/AI/testing/proj5/sdwan_analyzer/src/sdwan_analyzer/models/diagnose.py
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 import uuid
 
 @dataclass
@@ -156,7 +156,7 @@ class FinalReport:
 
 @dataclass
 class NetworkInterface:
-    """统一的网络接口模型"""
+    """统一的网络接口模型 - 仅包含基础网络配置信息"""
     name: str
     description: str
     mac_address: str
@@ -184,7 +184,10 @@ class SystemEnvironmentResult:
     gateway_reachable: bool = False
     dns_resolution_working: bool = False
     
-    # 3. 综合评分与建议
+    # 3. 路由信息 (Routing Information) - 新增字段，确保JSON报告完整路由信息
+    routing_information: Dict = field(default_factory=dict)
+    
+    # 4. 综合评分与建议
     config_score: float = 100.0
     issues: List[Issue] = field(default_factory=list)
     

@@ -18,6 +18,7 @@ a = Analysis(
         'sdwan_analyzer.modules.app_probe',
         'sdwan_analyzer.modules.sdwan_check',
         'sdwan_analyzer.modules.system_diagnose',
+        'sdwan_analyzer.modules.net_diagnostic',
         # 如果使用了 scapy 或其他复杂库，添加其子模块
         # 'scapy.layers.inet',
     ],
