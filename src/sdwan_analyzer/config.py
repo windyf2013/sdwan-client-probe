@@ -69,7 +69,3 @@ REPORT_DIR = os.environ.get('REPORT_DIR', os.getcwd())
 
 # 测试模式
 TEST_MODE = os.environ.get('TEST_MODE', '0') == '1'
-
-# 如果必须在这里加载规则文件，请使用 get_resource_path
-# from sdwan_analyzer.utils.path_utils import get_resource_path
-# rule_path = get_resource_path(os.path.join("docs", "my-rules.md"))

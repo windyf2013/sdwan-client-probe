@@ -1,0 +1,169 @@
+# SD-WAN Analyzer 默认配置
+# 严格遵循AI Agent Python工程标准 (AAPS-001)
+
+# 应用程序配置
+app:
+  name: "sdwan_analyzer"
+  version: "1.0.0"
+  description: "SD-WAN网络诊断分析工具"
+  
+# 日志配置
+logging:
+  level: "INFO"
+  format: "json"
+  file:
+    enabled: true
+    path: "./logs/sdwan_analyzer.log"
+    max_size: "10MB"
+    backup_count: 5
+  console:
+    enabled: true
+
+# 缓存配置
+cache:
+  backend: "memory"  # memory, filesystem, redis
+  memory:
+    max_size: 1000
+    strategy: "lru"  # lru, lfu, ttl
+  filesystem:
+    dir: "./.cache/sdwan_analyzer"
+
+# 数据库配置
+database:
+  type: "sqlite"
+  database: "./data/sdwan_analyzer.db"
+  timeout: 30.0
+
+databases: {}
+
+# 工具配置
+tools:
+  # 通用工具配置
+  execution:
+    timeout: 60.0
+    max_concurrent: 10
+    retry_count: 3
+    retry_delay: 1.0
+  
+  # Ping工具配置
+  ping:
+    count: 4
+    timeout: 5.0
+    interval: 1.0
+    packet_size: 56
+    
+  # DNS工具配置
+  dns:
+    server: "8.8.8.8"
+    timeout: 5.0
+    retry_count: 2
+    
+  # HTTP工具配置
+  http:
+    timeout: 30.0
+    verify_ssl: true
+    follow_redirects: true
+    max_redirects: 5
+    user_agent: "SD-WAN Analyzer/1.0.0"
+    
+  # TCP工具配置
+  tcp:
+    timeout: 10.0
+    concurrent_scans: 5
+    
+# 网络诊断配置
+diagnosis:
+  # 带宽测试配置
+  bandwidth:
+    duration: 10.0
+    chunk_size: 1024
+    server_url: "http://speedtest.example.com"
+    
+  # 延迟分析配置
+  latency:
+    sample_count: 100
+    warmup_count: 10
+    interval: 0.1
+    
+  # 路径追踪配置
+  traceroute:
+    max_hops: 30
+    timeout: 3.0
+    protocol: "udp"  # udp, icmp, tcp
+
+# 监控配置
+metrics:
+  enabled: true
+  collector:
+    interval: 60.0  # 采集间隔（秒）
+    retention: 86400  # 数据保留时间（秒）
+  exporters:
+    console:
+      enabled: false
+      interval: 30.0
+    file:
+      enabled: true
+      path: "./metrics/metrics.log"
+      interval: 300.0
+
+# 安全配置
+security:
+  # 权限控制
+  permissions:
+    tool_execution: true
+    file_access: true
+    network_access: true
+    
+  # 输入验证
+  validation:
+    max_input_size: 10240  # 最大输入大小（字节）
+    allowed_hosts: []  # 允许的主机列表（空表示允许所有）
+    blocked_hosts: []  # 阻止的主机列表
+
+# 性能配置
+performance:
+  # 资源限制
+  limits:
+    max_memory_mb: 512
+    max_cpu_percent: 80
+    max_threads: 50
+    
+  # 优化配置
+  optimization:
+    enable_compression: true
+    enable_caching: true
+    batch_size: 100
+
+# 开发配置 (仅开发环境使用)
+development:
+  debug: false
+  profiling: false
+  hot_reload: false
+  
+# 环境特定配置
+environments:
+  development:
+    logging:
+      level: "DEBUG"
+    database:
+      database: "./data/sdwan_analyzer_dev.db"
+    development:
+      debug: true
+      
+  production:
+    logging:
+      level: "WARNING"
+    cache:
+      backend: "redis"
+    security:
+      permissions:
+        tool_execution: false  # 生产环境限制工具执行
+        
+  testing:
+    logging:
+      level: "ERROR"
+    database:
+      type: "memory"
+    tools:
+      execution:
+        timeout: 10.0  # 测试环境下缩短超时时间
