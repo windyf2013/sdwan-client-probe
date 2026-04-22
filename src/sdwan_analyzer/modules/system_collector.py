@@ -103,6 +103,7 @@ def _parse_ipconfig_to_new_model(output: str) -> List[NetworkInterface]:
     """
     解析 ipconfig /all 输出，返回新的 NetworkInterface 列表
     逻辑源自 local_net_config.py get_network_adapters，但映射到新模型
+    返回所有适配器，包括未启用的
     """
     nics = []
     if not output:
@@ -131,6 +132,7 @@ def _parse_ipconfig_to_new_model(output: str) -> List[NetworkInterface]:
                 description=name_part,
                 mac_address="",
                 ip_addresses=[],
+                subnet_masks=[], # <--- 初始化子网掩码列表
                 gateways=[],
                 dns_servers=[],
                 is_dhcp=False,
@@ -165,6 +167,11 @@ def _parse_ipconfig_to_new_model(output: str) -> List[NetworkInterface]:
             ips = re.findall(r'(\d+\.\d+\.\d+\.\d+)', stripped_line)
             current_nic.ip_addresses.extend(ips)
 
+        # 【新增】子网掩码
+        if "子网掩码" in stripped_line or "Subnet Mask" in stripped_line:
+            masks = re.findall(r'(\d+\.\d+\.\d+\.\d+)', stripped_line)
+            current_nic.subnet_masks.extend(masks)
+
         # 默认网关 (支持换行)
         if "默认网关" in stripped_line or "Default Gateway" in stripped_line:
             gws = re.findall(r'(\d+\.\d+\.\d+\.\d+)', stripped_line)
@@ -191,13 +198,25 @@ def _parse_ipconfig_to_new_model(output: str) -> List[NetworkInterface]:
 
     if current_nic:
         nics.append(current_nic)
+    
+    # 返回所有适配器，包括未启用的
+    return nics
 
+def _get_all_network_interfaces() -> List[NetworkInterface]:
+    """获取所有网络接口，包括未启用的"""
+    ipconfig_out = _run_cmd(["ipconfig", "/all"])
+    if not ipconfig_out:
+        return []
+    return _parse_ipconfig_to_new_model(ipconfig_out)
+
+def _get_active_network_interfaces() -> List[NetworkInterface]:
+    """获取活跃的网络接口（排除 Disconnected 状态）"""
+    all_nics = _get_all_network_interfaces()
     # 过滤：只保留有 MAC 或 IP 且状态非断开的网卡
     valid_nics = [
-        nic for nic in nics 
+        nic for nic in all_nics 
         if (nic.ip_addresses or nic.mac_address) and nic.status != "Disconnected"
     ]
-    
     return valid_nics
 
 def _identify_primary_nic(nics: List[NetworkInterface]) -> Optional[NetworkInterface]:

@@ -14,672 +14,473 @@ from sdwan_analyzer.config import REPORT_DIR
 def export_html_report(report: FinalReport, path: Optional[str] = None):
     """导出HTML格式报告"""
     
-    print(f"\n[REPORT_DEBUG] [L14] export_html_report函数开始执行")
-    print(f"[REPORT_DEBUG] [L15] 传入参数: report类型={type(report)}, path={path}")
-    
     # 第一节: 处理路径参数
-    print(f"[REPORT_DEBUG] [L17-20] 开始处理路径参数")
     if path is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"SDWAN_Report_{timestamp}.html"
         path = os.path.join(REPORT_DIR, filename)
-        print(f"[REPORT_DEBUG] [L19-20] 自动生成路径: filename={filename}")
-    print(f"[REPORT_DEBUG] [L17-20] 最终路径: {path}")
     
     # 第二节: 生成HTML内容
-    print(f"[REPORT_DEBUG] [L22] 开始调用generate_commercial_html_report")
     html_content = generate_commercial_html_report(report)
-    print(f"[REPORT_DEBUG] [L22] HTML内容生成完成, 长度={len(html_content)}字符")
     
     # 第三节: 文件保存过程
-    print(f"[REPORT_DEBUG] [L24-35] 开始文件保存流程")
     try:
         # 确保目录存在
-        print(f"[REPORT_DEBUG] [L26-27] 检查目录是否存在: {os.path.dirname(path)}")
         if not os.path.exists(os.path.dirname(path)):
-            print(f"[REPORT_DEBUG] [L27] 目录不存在, 开始创建")
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            print(f"[REPORT_DEBUG] [L27] 目录创建成功")
-        else:
-            print(f"[REPORT_DEBUG] [L26] 目录已存在")
         
         # 写入文件
-        print(f"[REPORT_DEBUG] [L29-31] 开始写入HTML文件到: {path}")
         with open(path, 'w', encoding='utf-8') as f:
             f.write(html_content)
-        print(f"[REPORT_DEBUG] [L31] 文件写入成功")
         print(f"HTML报告已保存至: {path}")
         
-        print(f"[REPORT_DEBUG] [L32] 函数执行成功, 返回True")
         return True
         
     except Exception as e:
-        print(f"[REPORT_DEBUG] [L33-35] 捕获到异常")
-        print(f"[REPORT_DEBUG] [L34] 异常类型: {type(e).__name__}")
-        print(f"[REPORT_DEBUG] [L34] 异常详情: {e}")
-        print(f"[REPORT_DEBUG] [L35] 函数执行失败, 返回False")
         print(f"HTML报告保存失败: {e}")
         return False
 
 def generate_commercial_html_report(report: FinalReport) -> str:
-    """生成商用级HTML格式报告 - SDWAN运维分析师视角"""
+    """生成商用级HTML格式报告 - SDWAN诊断驾驶舱版"""
     
-    # 报告基本信息
+    # 1. 数据提取
     report_id = getattr(report, 'report_id', 'N/A')
     timestamp = getattr(report, 'timestamp', 'N/A')
     overall_score = getattr(report, 'overall_score', 0)
-    environment_score = getattr(report, 'environment_score', 0)
-    connectivity_score = getattr(report, 'connectivity_score', 0)
-    conclusion = getattr(report, 'conclusion', '')
     
-    # 系统信息
+    detailed_conclusion = getattr(report, 'detailed_conclusion', '')
+    conclusion = getattr(report, 'conclusion', '')
+    display_conclusion = detailed_conclusion if detailed_conclusion else conclusion
+    
+    status_notes = getattr(report, 'status_notes', [])
     system = getattr(report, 'system', {})
     app_probes = getattr(report, 'app_probes', [])
     issues = getattr(report, 'issues', [])
     recommendations = getattr(report, 'recommendations', [])
-    
-    # HTML报告模板（商用级完整格式）
+
+    # 2. 生成模块 HTML
+    # 核心生命体征 (网关/DNS/路由)
+    vitals_html = _generate_vitals_cards(system)
+    # 环境合规性 (防火墙/代理)
+    compliance_html = _generate_compliance_badges(system)
+    # 业务应用列表
+    apps_html = _generate_app_list(app_probes)
+    # 详细网卡与路由 (证据层)
+    details_html = _generate_evidence_section(system)
+    # 问题与建议
+    issues_html = _generate_issues_and_actions(issues, recommendations)
+    # 风险标签
+    tags_html = _generate_risk_tags(status_notes)
+
+    # 3. 动态样式计算
+    score_color = "#10b981" if overall_score >= 80 else "#f59e0b" if overall_score >= 60 else "#ef4444"
+    score_bg = "#ecfdf5" if overall_score >= 80 else "#fffbeb" if overall_score >= 60 else "#fef2f2"
+    score_icon = "🟢" if overall_score >= 80 else "🟡" if overall_score >= 60 else "🔴"
+
     return f'''<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SD-WAN终端环境深度分析报告 - {report_id}</title>
+    <title>瑞斯康达--跨境网络诊断报告 - {report_id}</title>
     <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{ font-family: 'Microsoft YaHei', 'PingFang SC', 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); min-height: 100vh; }}
-        .container {{ max-width: 1400px; margin: 0 auto; padding: 30px; }}
-        .document-header {{ background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); color: white; padding: 40px; border-radius: 12px; margin-bottom: 30px; box-shadow: 0 8px 25px rgba(0,0,0,0.15); }}
-        .document-header h1 {{ font-size: 34px; margin-bottom: 15px; font-weight: 300; }}
-        .document-subtitle {{ font-size: 18px; opacity: 0.9; margin-bottom: 5px; }}
-        .score-panel {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 25px; margin-bottom: 30px; }}
-        .score-card {{ background: white; padding: 30px; border-radius: 12px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.1); transition: transform 0.3s ease; }}
-        .score-card:hover {{ transform: translateY(-5px); }}
-        .score-card.overall {{ background: linear-gradient(135deg, #667eea, #764ba2); color: white; }}
-        .score-card.environment {{ background: linear-gradient(135deg, #4CAF50, #45a049); color: white; }}
-        .score-card.connectivity {{ background: linear-gradient(135deg, #2196F3, #1976D2); color: white; }}
-        .score-value {{ font-size: 48px; font-weight: 700; margin: 15px 0; text-shadow: 0 2px 4px rgba(0,0,0,0.2); }}
-        .score-progress {{ width: 100%; height: 8px; background: rgba(255,255,255,0.3); border-radius: 4px; margin: 15px 0; overflow: hidden; }}
-        .score-progress-fill {{ height: 100%; background: rgba(255,255,255,0.8); transition: width 1s ease; }}
-        .score-label {{ font-size: 16px; opacity: 0.95; letter-spacing: 1px; }}
-        .score-desc {{ font-size: 13px; opacity: 0.8; margin-top: 10px; }}
-        .section {{ background: white; padding: 35px; border-radius: 12px; margin-bottom: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-left: 5px solid #667eea; }}
-        .section h2 {{ color: #2c3e50; font-size: 24px; border-bottom: 2px solid #ecf0f1; padding-bottom: 15px; margin-bottom: 25px; display: flex; align-items: center; }}
-        .section h2:before {{ content: "▌"; margin-right: 10px; color: #667eea; }}
-        table {{ width: 100%; border-collapse: separate; border-spacing: 0; margin: 20px 0; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }}
-        th, td {{ border: none; padding: 18px 15px; text-align: left; }}
-        th {{ background: linear-gradient(135deg, #ecf0f1, #dfe6e9); font-weight: 600; color: #2c3e50; font-size: 15px; }}
-        tr:nth-child(even) {{ background: #f8f9fa; }}
-        tr:hover {{ background: #e3f2fd; transition: background 0.3s; }}
-        .status-indicator {{ display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; }}
-        .status-success {{ color: #27ae60; font-weight: 600; }}
-        .status-warning {{ color: #f39c12; font-weight: 600; }}
-        .status-error {{ color: #e74c3c; font-weight: 600; }}
-        .metric-badge {{ display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-left: 10px; }}
-        .metric-excellent {{ background: #e8f5e8; color: #27ae60; }}
-        .metric-good {{ background: #e3f2fd; color: #1976d2; }}
-        .metric-fair {{ background: #fff3e0; color: #f57c00; }}
-        .metric-poor {{ background: #ffebee; color: #d32f2f; }}
-        .conclusion-panel {{ background: linear-gradient(135deg, #667eea18, #764ba218); padding: 30px; border-radius: 12px; border-left: 5px solid #667eea; margin: 25px 0; }}
-        .conclusion-title {{ font-size: 20px; font-weight: 600; color: #2c3e50; margin-bottom: 15px; }}
-        .recommendation-item {{ background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #667eea; }}
-        .timestamp {{ color: #7f8c8d; font-size: 13px; margin-top: 5px; }}
-        .footer {{ text-align: center; padding: 30px; color: #7f8c8d; font-size: 13px; border-top: 1px solid #ecf0f1; margin-top: 40px; }}
-        .print-only {{ display: none; }}
-        @media print {{
-            .score-card:hover {{ transform: none; }}
-            .print-only {{ display: block; }}
+        :root {{
+            --primary: #2563eb; --success: #10b981; --warning: #f59e0b; --danger: #ef4444;
+            --gray-50: #f9fafb; --gray-100: #f3f4f6; --gray-200: #e5e7eb; --gray-600: #4b5563; --gray-800: #1f2937;
         }}
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.5; color: var(--gray-800); background: #fff; font-size: 14px; }}
+        
+        .container {{ max-width: 1000px; margin: 0 auto; padding: 40px 20px; }}
+        
+        /* --- 头部：决策层 --- */
+        .header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1px solid var(--gray-200); }}
+        .title-group h1 {{ font-size: 24px; font-weight: 700; margin-bottom: 5px; }}
+        .title-group p {{ font-size: 13px; color: var(--gray-600); }}
+        
+        .score-box {{ text-align: right; }}
+        .score-val {{ font-size: 48px; font-weight: 800; color: {score_color}; line-height: 1; }}
+        .score-lbl {{ font-size: 12px; color: var(--gray-600); font-weight: 600; text-transform: uppercase; }}
+
+        /* --- 结论横幅 --- */
+        .conclusion-banner {{ background: {score_bg}; border-left: 5px solid {score_color}; padding: 20px; border-radius: 6px; margin-bottom: 30px; display: flex; align-items: start; gap: 15px; }}
+        .conclusion-icon {{ font-size: 24px; }}
+        .conclusion-content h3 {{ font-size: 16px; font-weight: 700; margin-bottom: 5px; }}
+        .conclusion-content p {{ font-size: 14px; color: var(--gray-600); margin-bottom: 10px; }}
+        
+        /* --- 风险标签 --- */
+        .risk-tags {{ display: flex; flex-wrap: wrap; gap: 8px; }}
+        .tag {{ font-size: 12px; padding: 4px 10px; border-radius: 12px; background: #fff; border: 1px solid var(--gray-200); color: var(--gray-600); }}
+        .tag.warn {{ background: #fffbeb; border-color: #fcd34d; color: #b45309; }}
+
+        /* --- 核心生命体征 (3列网格) --- */
+        .vitals-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 30px; }}
+        .vital-card {{ background: #fff; border: 1px solid var(--gray-200); border-radius: 8px; padding: 15px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }}
+        .vital-title {{ font-size: 12px; font-weight: 600; color: var(--gray-600); text-transform: uppercase; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }}
+        .vital-value {{ font-size: 18px; font-weight: 700; color: var(--gray-800); margin-bottom: 4px; word-break: break-all; }}
+        .vital-status {{ font-size: 12px; font-weight: 600; }}
+        .st-ok {{ color: var(--success); }} .st-fail {{ color: var(--danger); }} .st-warn {{ color: var(--warning); }}
+
+        /* --- 中间层：合规性与业务 (2列网格) --- */
+        .mid-grid {{ display: grid; grid-template-columns: 1fr 1.5fr; gap: 20px; margin-bottom: 30px; }}
+        .panel {{ background: #fff; border: 1px solid var(--gray-200); border-radius: 8px; overflow: hidden; }}
+        .panel-head {{ padding: 12px 16px; background: var(--gray-50); border-bottom: 1px solid var(--gray-200); font-weight: 600; font-size: 14px; }}
+        .panel-body {{ padding: 16px; }}
+
+        /* 合规性徽章 */
+        .badge-row {{ display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px dashed var(--gray-100); }}
+        .badge {{ padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; }}
+        .b-green {{ background: #d1fae5; color: #065f46; }}
+        .b-red {{ background: #fee2e2; color: #991b1b; }}
+        
+        /* 应用列表 */
+        .app-item {{ display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--gray-100); }}
+        .app-item:last-child {{ border-bottom: none; }}
+        .app-name {{ font-weight: 500; font-size: 14px; }}
+        .app-desc {{ font-size: 12px; color: var(--gray-500); }}
+        .app-res {{ text-align: right; }}
+        
+        /* --- 底层：证据层 (紧凑表格) --- */
+        .evidence-section {{ margin-bottom: 30px; }}
+        .evidence-grid {{ display: flex; gap: 20px; flex-wrap: wrap; }} 
+        .data-list {{ max-height: 300px; overflow-y: auto; font-size: 12px; padding-right: 5px; }}
+        /* 自定义滚动条样式 */
+        .data-list::-webkit-scrollbar {{ width: 6px; }}
+        .data-list::-webkit-scrollbar-thumb {{ background: #cbd5e1; border-radius: 3px; }}
+        .data-row {{ padding: 6px 0; border-bottom: 1px solid var(--gray-100); display: flex; justify-content: space-between; }}
+        .data-row span:first-child {{ color: var(--gray-600); }}
+        .data-row span:last-child {{ font-family: monospace; color: var(--gray-800); }}
+
+        /* --- 问题与建议 --- */
+        .action-panel {{ background: #fff; border: 1px solid var(--gray-200); border-radius: 8px; padding: 20px; }}
+        .issue-box {{ padding: 12px; background: #fef2f2; border-left: 4px solid var(--danger); margin-bottom: 10px; border-radius: 4px; }}
+        .issue-box.warn {{ background: #fffbeb; border-left-color: var(--warning); }}
+        .rec-list {{ list-style: none; margin-top: 20px; }}
+        .rec-item {{ padding: 8px 0; border-bottom: 1px solid var(--gray-100); font-size: 14px; display: flex; gap: 10px; }}
+        
+        .footer {{ text-align: center; font-size: 12px; color: #9ca3af; margin-top: 40px; }}
+        
+        @media print {{ .container {{ width: 100%; max-width: none; }} .panel {{ break-inside: avoid; }} }}
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- 报告头信息 -->
-        <div class="document-header">
-            <h1>SD-WAN终端环境深度分析报告</h1>
-            <div class="document-subtitle">报告编号: {report_id} | 生成时间: {timestamp}</div>
-            <div class="document-subtitle">检测范围: 系统环境 + 网络连通性 + 应用可达性</div>
+        <!-- 1. 头部 -->
+        <div class="header">
+            <div class="title-group">
+                <h1>SD-WAN 终端诊断报告</h1>
+                <p>ID: {report_id} | 时间: {timestamp}</p>
+            </div>
+            <div class="score-box">
+                <div class="score-val">{overall_score:.0f}</div>
+                <div class="score-lbl">健康评分</div>
+            </div>
         </div>
 
-        <!-- 综合评分面板 -->
-        <div class="score-panel">
-            <div class="score-card overall">
-                <div class="score-label">综合健康评分</div>
-                <div class="score-value">{overall_score:.1f}/100</div>
-                <div class="score-progress">
-                    <div class="score-progress-fill" style="width: {overall_score}%;"></div>
+        <!-- 2. 结论与风险 -->
+        <div class="conclusion-banner">
+            <div class="conclusion-icon">{score_icon}</div>
+            <div class="conclusion-content">
+                <h3>诊断结论</h3>
+                <p>{display_conclusion}</p>
+                {tags_html}
+            </div>
+        </div>
+
+        <!-- 3. 核心生命体征 (Vitals) -->
+        <h4 style="font-size:14px; color:var(--gray-600); margin-bottom:10px;">📡 核心网络诊断结果</h4>
+        <div class="vitals-grid">
+            {vitals_html}
+        </div>
+
+        <!-- 4. 环境与业务 (Mid Layer) -->
+        <div class="mid-grid">
+            <!-- 左：合规性 -->
+            <div class="panel">
+                <div class="panel-head">🛡️ 环境合规性</div>
+                <div class="panel-body">
+                    {compliance_html}
                 </div>
-                <div class="score-desc">终端环境整体健康度评估</div>
             </div>
-            <div class="score-card environment">
-                <div class="score-label">系统环境评分</div>
-                <div class="score-value">{environment_score:.1f}/100</div>
-                <div class="score-progress">
-                    <div class="score-progress-fill" style="width: {environment_score}%;"></div>
+            <!-- 右：业务应用 -->
+            <div class="panel">
+                <div class="panel-head">🌐 业务应用可达性</div>
+                <div class="panel-body">
+                    {apps_html}
                 </div>
-                <div class="score-desc">操作系统、网络配置等基础环境</div>
             </div>
-            <div class="score-card connectivity">
-                <div class="score-label">网络连通性评分</div>
-                <div class="score-value">{connectivity_score:.1f}/100</div>
-                <div class="score-progress">
-                    <div class="score-progress-fill" style="width: {connectivity_score}%;"></div>
+        </div>
+
+        <!-- 5. 证据层 (Details) -->
+        <div class="evidence-section">
+            <h4 style="font-size:14px; color:var(--gray-600); margin-bottom:10px;">💻 网络配置详情 (Evidence)</h4>
+            <div class="panel">
+                <div class="panel-body">
+                    {details_html}
                 </div>
-                <div class="score-desc">网络链路质量与可达性</div>
             </div>
         </div>
 
-        <!-- 执行摘要 -->
-        <div class="section">
-            <h2>执行摘要</h2>
-            <div class="conclusion-panel">
-                <div class="conclusion-title">核心评估结果</div>
-                <p style="font-size: 16px; line-height: 1.8;">{conclusion}</p>
-                <div class="timestamp">评估基准: IT运维最佳实践 | SD-WAN部署标准</div>
-            </div>
+        <!-- 6. 行动指南 -->
+        <div class="action-panel">
+            {issues_html}
         </div>
 
-        <!-- 详细检测结果 -->
-        <div class="section">
-            <h2>详细检测结果</h2>
-            
-            <!-- 系统环境检测结果 -->
-            <h3 style="color: #4CAF50; margin: 25px 0 15px 0;">📊 系统环境检测</h3>
-            {_generate_detailed_system_info_html(system)}
-            
-            <!-- 应用可达性检测 -->
-            <h3 style="color: #2196F3; margin: 25px 0 15px 0;">🌐 应用可达性检测</h3>
-            {_generate_detailed_app_probes_html(app_probes)}
-            
-            <!-- 问题诊断报告 -->
-            {_generate_detailed_issues_html(issues)}
-        </div>
-
-        <!-- 优化建议与行动项 -->
-        <div class="section">
-            <h2>优化建议与行动项</h2>
-            {_generate_recommendations_html(recommendations, overall_score)}
-        </div>
-
-        <!-- 技术指标参考 -->
-        <div class="section">
-            <h2>技术指标参考</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>指标类别</th>
-                        <th>评估标准</th>
-                        <th>当前状态</th>
-                        <th>行业基准</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>综合健康度</td>
-                        <td>系统环境 + 网络连通性综合评分</td>
-                        <td><span class="{'status-success' if overall_score >= 80 else 'status-warning' if overall_score >= 60 else 'status-error'}">{overall_score:.1f}/100</span></td>
-                        <td>≥80 (优秀) | 60-80 (良好) | &lt;60 (需优化)</td>
-                    </tr>
-                    <tr>
-                        <td>网络连通性</td>
-                        <td>网关、DNS、关键应用可达性</td>
-                        <td><span class="{'status-success' if connectivity_score >= 85 else 'status-warning' if connectivity_score >= 70 else 'status-error'}">{connectivity_score:.1f}/100</span></td>
-                        <td>≥85 (优秀) | 70-85 (良好) | &lt;70 (需优化)</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-
-        <!-- 报告尾部 -->
-        <div class="footer">
-            <p>📄 报告生成: SD-WAN智能分析平台 v1.2 | 🕐 生成时间: {timestamp}</p>
-            <p>🔒 报告编号: {report_id} | 📧 技术支持: network-support@example.com</p>
-            <p class="print-only">--- 文档结束 ---</p>
-        </div>
+        <div class="footer">Generated by SD-WAN Intelligent Analyzer v1.2</div>
     </div>
 </body>
 </html>
 '''
 
-def _generate_system_info_html(system: dict) -> str:
-    """生成系统环境信息的HTML表格"""
-    if not system:
-        return "<p>系统环境信息不可用</p>"
-    
-    html = "<p>系统环境信息详情请看终端输出</p>"
-    
-    # 简化的系统信息展示
-    if hasattr(system, 'interfaces'):
-        interfaces = getattr(system, 'interfaces', [])
-        if interfaces:
-            html += '<h3>网络接口数量: {}</h3>'.format(len(interfaces))
-    
-    return html
+# ================= 辅助函数 =================
 
-def _generate_detailed_system_info_html(system) -> str:
-    """生成详细的系统环境信息HTML - 商用级标准"""
-    if not system:
-        return '<p style="color: #7f8c8d; font-style: italic; padding: 20px; text-align: center;">❌ 系统环境检测数据未收集</p>'
+def _generate_vitals_cards(system) -> str:
+    """生成3个核心生命体征卡片"""
+    metrics = _extract_system_metrics(system)
     
-    html = '''
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin: 20px 0;">
-    '''
+    # 1. 网关
+    gw_ok = metrics['gateway_reachable']
+    gw_html = f'''
+    <div class="vital-card">
+        <div class="vital-title">🚪 默认网关</div>
+        <div class="vital-value">{metrics['primary_gateway']}</div>
+        <div class="vital-status {'st-ok' if gw_ok else 'st-fail'}">{'✅ 连通' if gw_ok else '❌ 不可达'}</div>
+    </div>'''
     
-    # 兼容字典和数据类对象的访问方式
-    def get_value(obj, key, default=None):
-        """通用值获取函数，支持字典和数据类对象"""
-        if isinstance(obj, dict):
-            return obj.get(key, default)
-        else:
-            return getattr(obj, key, default)
+    # 2. DNS
+    dns_ok = metrics['dns_resolution_working']
+    dns_str = metrics['dns_servers'][0] if metrics['dns_servers'] else '未配置'
+    dns_html = f'''
+    <div class="vital-card">
+        <div class="vital-title">📞 DNS 解析</div>
+        <div class="vital-value" style="font-size:14px">{dns_str}</div>
+        <div class="vital-status {'st-ok' if dns_ok else 'st-warn'}">{'✅ 正常' if dns_ok else '⚠️ 异常/未知'}</div>
+    </div>'''
     
-    # 网络接口信息 - 适用于SystemEnvironmentResult对象
-    interfaces = get_value(system, 'interfaces', [])
-    proxy_enabled = get_value(system, 'proxy_enabled', False)
-    proxy_server = get_value(system, 'proxy_server', '')
-    firewall_enabled = get_value(system, 'firewall_enabled', False)
+    # 3. 路由
+    route_ok = metrics['default_route_exists']
+    route_html = f'''
+    <div class="vital-card">
+        <div class="vital-title">🗺️ 缺省路由</div>
+        <div class="vital-value">{len(metrics['default_routes'])} 条</div>
+        <div class="vital-status {'st-ok' if route_ok else 'st-fail'}">{'✅ 存在' if route_ok else '❌ 缺失'}</div>
+    </div>'''
     
-    # 网络配置信息卡
-    if interfaces:
-        primary_interface = get_value(system, 'primary_interface')
-        html += f'''
-        <div style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px;">
-            <h4 style="color: #2c3e50; margin-bottom: 15px; display: flex; align-items: center;">
-                <span style="background: #3498db; color: white; width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-right: 10px; font-size: 12px;">🌐</span>
-                网络接口配置
-            </h4>
-            <div style="line-height: 1.8;">
-        '''
-        
-        for interface in interfaces:
-            interface_name = get_value(interface, 'name', '未知接口')
-            interface_desc = get_value(interface, 'description', '')
-            ip_addresses = ', '.join(get_value(interface, 'ip_addresses', [])) or 'N/A'
-            gateways = ', '.join(get_value(interface, 'gateways', [])) or 'N/A'
-            dns_servers = ', '.join(get_value(interface, 'dns_servers', [])) or 'N/A'
-            is_primary = get_value(interface, 'is_primary', False)
-            
-            primary_marker = " (主网卡)" if is_primary else ""
-            html += f'''
-                <div style="border-bottom: 1px solid #f0f0f0; padding: 10px 0;">
-                    <div><strong>{interface_name}{primary_marker}:</strong> {interface_desc}</div>
-                    <div style="font-size: 13px; color: #666; margin-left: 15px;">
-                        <div>IP地址: <span style="font-family: monospace;">{ip_addresses}</span></div>
-                        <div>网关: <span style="font-family: monospace;">{gateways}</span></div>
-                        <div>DNS: <span style="font-family: monospace;">{dns_servers}</span></div>
-                    </div>
-                </div>
-            '''
-        
-        html += '''
-            </div>
-        </div>
-        '''
-    
-    # 系统配置信息卡
-    config_has_data = proxy_enabled or firewall_enabled
-    if config_has_data:
-        html += f'''
-        <div style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px;">
-            <h4 style="color: #2c3e50; margin-bottom: 15px; display: flex; align-items: center;">
-                <span style="background: #e74c3c; color: white; width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-right: 10px; font-size: 12px;">🔧</span>
-                系统配置状态
-            </h4>
-            <div style="line-height: 1.8;">
-                <div><strong>代理设置:</strong> {'已启用' if proxy_enabled else '未启用'} {proxy_server if proxy_server else ''}</div>
-                <div><strong>防火墙:</strong> {'已启用' if firewall_enabled else '未启用'}</div>
-        '''
-        
-        # 添加连通性状态（如果存在）
-        default_route_exists = get_value(system, 'default_route_exists', False)
-        gateway_reachable = get_value(system, 'gateway_reachable', False)
-        dns_resolution_working = get_value(system, 'dns_resolution_working', False)
-        
-        html += f'''
-                <div><strong>默认路由:</strong> {'正常' if default_route_exists else '异常'}</div>
-                <div><strong>网关可达性:</strong> {'正常' if gateway_reachable else '异常'}</div>
-                <div><strong>DNS解析:</strong> {'正常' if dns_resolution_working else '异常'}</div>
-        '''
-        
-        html += '''
-            </div>
-        </div>
-        '''
-    
-    # 兼容旧版本的字典结构（如果有额外的网络信息）
-    if isinstance(system, dict):
-        network_info = system.get('network_info', {})
-        if network_info:
-            html += f'''
-            <div style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px;">
-                <h4 style="color: #2c3e50; margin-bottom: 15px; display: flex; align-items: center;">
-                    <span style="background: #9b59b6; color: white; width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-right: 10px; font-size: 12px;">📡</span>
-                    网络基础信息
-                </h4>
-                <div style="line-height: 1.8;">
-                    <div><strong>本地IP:</strong> <span style="font-family: monospace;">{network_info.get('local_ip', 'N/A')}</span></div>
-                    <div><strong>网关IP:</strong> <span style="font-family: monospace;">{network_info.get('gateway_ip', 'N/A')}</span></div>
-                    <div><strong>DNS服务器:</strong> {', '.join(network_info.get('dns_servers', [])) or 'N/A'}</div>
-                </div>
-            </div>
-            '''
-    
-    html += '</div>'
-    
-    # 如果没有任何数据
-    if not any([interfaces, config_has_data]):
-        html = '<p style="color: #7f8c8d; font-style: italic; padding: 20px; text-align: center;">📊 系统环境检测数据正在收集...</p>'
-    
-    return html
+    return gw_html + dns_html + route_html
 
-def _generate_detailed_app_probes_html(app_probes: list) -> str:
-    """生成详细的应用可达性检测HTML - 商用级标准"""
-    if not app_probes:
-        return '<p style="color: #7f8c8d; font-style: italic; padding: 20px; text-align: center;">🌐 应用可达性检测未执行</p>'
+def _generate_compliance_badges(system) -> str:
+    """生成合规性徽章"""
+    metrics = _extract_system_metrics(system)
     
-    def get_probe_value(probe, key, default=None):
-        """通用值获取函数，支持字典和AppProbeResult数据类对象"""
-        if isinstance(probe, dict):
-            return probe.get(key, default)
-        else:
-            return getattr(probe, key, default)
-    
-    total_probes = len(app_probes)
-    successful_probes = sum(1 for probe in app_probes if get_probe_value(probe, "ping_reachable", False) or 
-                                                   get_probe_value(probe, "tcp_open", False) or 
-                                                   get_probe_value(probe, "http_available", False))
-    success_rate = (successful_probes / total_probes) * 100 if total_probes > 0 else 0
-    
-    html = f'''
-    <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 25px;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div>
-                <strong>检测摘要</strong>
-                <div style="color: #666; font-size: 14px; margin-top: 5px;">共检测 {total_probes} 个关键业务应用</div>
-            </div>
-            <div style="text-align: right;">
-                <div class="{'status-success' if success_rate >= 90 else 'status-warning' if success_rate >= 70 else 'status-error'}" style="font-size: 18px; font-weight: bold;">
-                    {success_rate:.1f}% 可用性
-                </div>
-                <div style="color: #666; font-size: 12px;">{successful_probes}/{total_probes} 应用正常</div>
-            </div>
-        </div>
-    </div>
-    
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 15px;">
-    '''
-    
-    for probe in app_probes:
-        target = get_probe_value(probe, "target", "未知应用")
-        
-        # 多种状态检测：ping可达性或TCP端口开放或HTTP可用
-        ping_status = get_probe_value(probe, "ping_reachable", False)
-        tcp_status = get_probe_value(probe, "tcp_open", False)
-        http_status = get_probe_value(probe, "http_available", False)
-        
-        # 综合状态：任一检测方式成功都算正常
-        status = ping_status or tcp_status or http_status
-        tcp_port = get_probe_value(probe, "tcp_port", 0)
-        
-        # 确定检测方式描述
-        method_type = ""
-        if http_status:
-            method_type = "HTTP访问"
-        elif tcp_status:
-            method_type = f"TCP端口{tcp_port}"
-        elif ping_status:
-            method_type = "Ping"
-        else:
-            method_type = "网络连通"
-            
-        # 尝试获取描述，如果没有则生成默认描述
-        description = get_probe_value(probe, "description", "")
-        if not description:
-            description = f"{method_type}检测 - 关键业务应用"
-            
-        status_color = "#27ae60" if status else "#e74c3c"
-        status_icon = "✅" if status else "❌"
-        status_text = "正常" if status else "异常"
-        
-        html += f'''
-        <div style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; background: white; border-left: 4px solid {status_color};">
-            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
-                <div style="flex: 1;">
-                    <div style="font-weight: 600; font-size: 16px; color: #2c3e50;">{target}</div>
-                    <div style="color: #7f8c8d; font-size: 13px; margin-top: 5px;">{description}</div>
-                </div>
-                <div style="text-align: right;">
-                    <span style="font-size: 20px; margin-right: 5px;">{status_icon}</span>
-                    <span class="{'status-success' if status else 'status-error'}" style="font-weight: 600;">{status_text}</span>
-                </div>
-            </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px; font-size: 13px;">
-                <div><strong>检测方式:</strong> {method_type}</div>
-                <div><strong>详情状态:</strong> {f"Ping:{ping_status}" if ping_status else f"TCP端口{tcp_port}:{tcp_status}" if tcp_status else f"HTTP: {http_status}" if http_status else "多种检测失败"}</div>
-            </div>
-        </div>
-        '''
-    
-    html += '</div>'
-    
-    # 可用性评级
-    availability_class = "metric-excellent" if success_rate >= 90 else "metric-good" if success_rate >= 70 else "metric-fair" if success_rate >= 50 else "metric-poor"
-    availability_text = "优秀" if success_rate >= 90 else "良好" if success_rate >= 70 else "一般" if success_rate >= 50 else "较差"
-    
-    html += f'''
-    <div style="margin-top: 25px; text-align: center; padding: 15px; background: #f8f9fa; border-radius: 8px;">
-        <div style="font-size: 14px; color: #666;">应用可用性评级</div>
-        <div style="margin-top: 10px;">
-            <span class="metric-badge {availability_class}" style="font-size: 16px;">{availability_text}</span>
-            <div style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">成功率 {success_rate:.1f}% | 行业基准 ≥85%</div>
-        </div>
-    </div>
-    '''
-    
-    return html
-
-def _generate_detailed_issues_html(issues: list) -> str:
-    """生成详细的问题诊断HTML - 商用级标准"""
-    
-    def get_issue_value(issue, key, default=None):
-        """通用值获取函数，支持字典和Issue数据类对象"""
-        if isinstance(issue, dict):
-            return issue.get(key, default)
-        else:
-            return getattr(issue, key, default)
-    
-    if not issues:
-        return '''
-        <div style="background: #e8f5e8; padding: 25px; border-radius: 8px; text-align: center; margin: 25px 0;">
-            <div style="font-size: 48px; margin-bottom: 15px;">🎉</div>
-            <h3 style="color: #27ae60; margin-bottom: 10px;">无严重问题检测到</h3>
-            <p style="color: #2e7d32; margin: 0;">系统环境与网络连接状态良好，符合SD-WAN部署要求</p>
-        </div>
-        '''
-    
-    # 分类问题
-    critical_issues = [issue for issue in issues if get_issue_value(issue, "level", "") == "error"]
-    warning_issues = [issue for issue in issues if get_issue_value(issue, "level", "") == "warning"]
-    info_issues = [issue for issue in issues if get_issue_value(issue, "level", "") == "info"]
-    
-    html = '''
-    <div style="margin: 25px 0;">
-    '''
-    
-    # 关键问题
-    if critical_issues:
-        html += '''
-        <div style="margin-bottom: 25px;">
-            <h4 style="color: #e74c3c; display: flex; align-items: center; margin-bottom: 15px;">
-                <span style="background: #e74c3c; color: white; width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-right: 10px; font-size: 12px;">⚠️</span>
-                关键问题 (需要立即处理)
-            </h4>
-        '''
-        for issue in critical_issues:
-            category = get_issue_value(issue, "category", "未知分类")
-            message = get_issue_value(issue, "message", "未知问题")
-            title = f"{category}: {message.split('.')[0]}" if '.' in message else f"{category}问题"
-            description = message
-            
-            html += f'''
-            <div style="background: #ffebee; border-left: 4px solid #e74c3c; padding: 15px; margin-bottom: 10px; border-radius: 4px;">
-                <div style="font-weight: 600; color: #c62828; margin-bottom: 5px;">{title}</div>
-                <div style="color: #d32f2f; font-size: 14px;">{description}</div>
-                <div style="color: #666; font-size: 12px; margin-top: 5px;">影响: 系统功能和网络连通性</div>
-            </div>
-            '''
-        html += '</div>'
-    
-    # 警告问题
-    if warning_issues:
-        html += '''
-        <div style="margin-bottom: 25px;">
-            <h4 style="color: #f39c12; display: flex; align-items: center; margin-bottom: 15px;">
-                <span style="background: #f39c12; color: white; width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-right: 10px; font-size: 12px;">🔔</span>
-                警告问题 (建议优化)
-            </h4>
-        '''
-        for issue in warning_issues:
-            category = get_issue_value(issue, "category", "未知分类")
-            message = get_issue_value(issue, "message", "未知问题")
-            title = f"{category}: {message.split('.')[0]}" if '.' in message else f"{category}优化"
-            description = message
-            
-            html += f'''
-            <div style="background: #fff3e0; border-left: 4px solid #f39c12; padding: 15px; margin-bottom: 10px; border-radius: 4px;">
-                <div style="font-weight: 600; color: #ef6c00; margin-bottom: 5px;">{title}</div>
-                <div style="color: #f57c00; font-size: 14px;">{description}</div>
-            </div>
-            '''
-        html += '</div>'
-    
-    # 信息提示
-    if info_issues:
-        html += '''
-        <div style="margin-bottom: 25px;">
-            <h4 style="color: #3498db; display: flex; align-items: center; margin-bottom: 15px;">
-                <span style="background: #3498db; color: white; width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-right: 10px; font-size: 12px;">💡</span>
-                优化建议
-            </h4>
-        '''
-        for issue in info_issues:
-            category = get_issue_value(issue, "category", "网络")
-            message = get_issue_value(issue, "message", "系统运行正常")
-            title = f"{category}状态良好"
-            description = message
-            
-            html += f'''
-            <div style="background: #e3f2fd; border-left: 4px solid #3498db; padding: 15px; margin-bottom: 10px; border-radius: 4px;">
-                <div style="font-weight: 600; color: #1976d2; margin-bottom: 5px;">{title}</div>
-                <div style="color: #2196f3; font-size: 14px;">{description}</div>
-            </div>
-            '''
-        html += '</div>'
-    
-    html += '</div>'
-    
-    return html
-
-def _generate_recommendations_html(recommendations: list, overall_score: float) -> str:
-    """生成详细的优化建议HTML - 商用级标准"""
-    
-    # 根据评分生成基础建议
-    base_recommendations = []
-    if overall_score >= 80:
-        base_recommendations = [
-            "系统状态优秀，建议保持当前配置并定期监控",
-            "考虑实施更高级的监控和自动化运维方案"
-        ]
-    elif overall_score >= 60:
-        base_recommendations = [
-            "系统状态良好，建议针对特定问题进行优化",
-            "考虑增加网络冗余和负载均衡配置"
-        ]
-    else:
-        base_recommendations = [
-            "系统需要优化，建议优先处理关键问题",
-            "考虑网络架构调整和性能优化方案"
-        ]
-    
-    # 合并用户自定义建议
-    all_recommendations = base_recommendations + recommendations
-    
-    if not all_recommendations:
-        all_recommendations = [
-            "定期执行系统健康检查",
-            "保持操作系统和网络设备固件更新",
-            "实施网络监控和告警机制"
-        ]
-    
-    html = '''
-    <div style="display: grid; gap: 15px;">
-    '''
-    
-    for i, recommendation in enumerate(all_recommendations, 1):
-        priority = "高" if overall_score < 60 and i <= 2 else "中" if overall_score < 80 and i <= 3 else "低"
-        priority_color = "#e74c3c" if priority == "高" else "#f39c12" if priority == "中" else "#27ae60"
-        
-        html += f'''
-        <div class="recommendation-item">
-            <div style="display: flex; align-items: start; gap: 15px;">
-                <div style="background: {priority_color}; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0;">{i}</div>
-                <div style="flex: 1;">
-                    <div style="font-weight: 600; margin-bottom: 5px;">{recommendation}</div>
-                    <div style="display: flex; gap: 15px; margin-top: 10px;">
-                        <span style="background: {priority_color}15; color: {priority_color}; padding: 2px 8px; border-radius: 12px; font-size: 12px;">优先级: {priority}</span>
-                        <span style="color: #7f8c8d; font-size: 12px;">建议执行</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-        '''
-    
-    html += '''
-    </div>
-    
-    <div style="margin-top: 25px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
-        <h4 style="color: #2c3e50; margin-bottom: 15px;">📋 行动计划建议</h4>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
-            <div style="text-align: center;">
-                <div style="font-size: 24px; margin-bottom: 5px;">🔄</div>
-                <div style="font-weight: 600;">即时处理</div>
-                <div style="font-size: 12px; color: #7f8c8d;">高优先级问题</div>
-            </div>
-            <div style="text-align: center;">
-                <div style="font-size: 24px; margin-bottom: 5px;">📈</div>
-                <div style="font-weight: 600;">本周优化</div>
-                <div style="font-size: 12px; color: #7f8c8d;">中优先级改进</div>
-            </div>
-            <div style="text-align: center;">
-                <div style="font-size: 24px; margin-bottom: 5px;">🔮</div>
-                <div style="font-weight: 600;">长期规划</div>
-                <div style="font-size: 12px; color: #7f8c8d;">架构优化方案</div>
-            </div>
-        </div>
-    </div>
-    '''
-    
-    return html
-
-def _generate_issues_html(issues: list) -> str:
-    """生成问题识别的HTML"""
-    if not issues:
-        return '<p><span class="status-success">未发现严重问题</span></p>'
-    
-    error_count = sum(1 for i in issues if getattr(i, 'level', '') == "error")
-    warning_count = sum(1 for i in issues if getattr(i, 'level', '') == "warning")
+    fw_badge = '<span class="badge b-red">已开启</span>' if metrics['firewall_enabled'] else '<span class="badge b-green">已关闭</span>'
+    proxy_badge = '<span class="badge b-red">已开启</span>' if metrics['proxy_enabled'] else '<span class="badge b-green">未开启</span>'
     
     return f'''
-    <div class="issues-list">
-        <p><strong>问题统计:</strong></p>
-        <p>严重问题: {error_count}个 | 警告问题: {warning_count}个</p>
-        <p>具体问题详情请查看终端输出</p>
+    <div class="badge-row">
+        <span>Windows 防火墙</span>
+        {fw_badge}
+    </div>
+    <div class="badge-row">
+        <span>系统代理</span>
+        {proxy_badge}
     </div>
     '''
 
+def _generate_app_list(app_probes) -> str:
+    """生成应用列表"""
+    if not app_probes:
+        return '<div style="color:#999;text-align:center">无数据</div>'
+    
+    html = ''
+    for probe in app_probes:
+        target = probe.get('target', 'Unknown') if isinstance(probe, dict) else getattr(probe, 'target', 'Unknown')
+        reachable = probe.get('ping_reachable', False) if isinstance(probe, dict) else getattr(probe, 'ping_reachable', False)
+        desc = probe.get('description', '') if isinstance(probe, dict) else getattr(probe, 'description', '')
+        ping_status = probe.get('ping_status', '') if isinstance(probe, dict) else getattr(probe, 'ping_status', '')
+        
+        status_badge = '<span class="badge b-green">正常</span>' if reachable else '<span class="badge b-red">异常</span>'
+        
+        html += f'''
+        <div class="app-item">
+            <div>
+                <div class="app-name">{target}</div>
+                <div class="app-desc">{desc}</div>
+            </div>
+            <div class="app-res">
+                {status_badge}
+                <div style="font-size:11px;color:#666;margin-top:2px">{ping_status}</div>
+            </div>
+        </div>
+        '''
+    return html
+
+def _generate_evidence_section(system) -> str:
+    """生成证据层：网卡和路由详情 (增强版)"""
+    metrics = _extract_system_metrics(system)
+    
+    # --- 1. 网卡部分 (增强显示) ---
+    nic_html = '<div style="margin-right:20px; flex:1;"><strong style="font-size:12px;display:block;margin-bottom:8px;color:var(--gray-600)">📡 网络接口详情:</strong><div class="data-list" style="max-height:300px;">'
+    
+    for nic in metrics['interfaces']:
+        name = _safe_get(nic, 'name', 'Unknown')
+        status = _safe_get(nic, 'status', 'Disconnected')
+        desc = _safe_get(nic, 'description', '')
+        mac = _safe_get(nic, 'mac_address', '')
+        ips = _safe_get(nic, 'ip_addresses', [])
+        gateways = _safe_get(nic, 'gateways', [])
+        dns_servers = _safe_get(nic, 'dns_servers', [])
+        
+        is_up = status == 'Connected' and ips
+        color = "var(--success)" if is_up else "var(--gray-400)"
+        
+        # 智能识别网卡类型
+        nic_type = "Ethernet" # 默认
+        desc_lower = desc.lower()
+        name_lower = name.lower()
+        
+        if any(k in desc_lower or k in name_lower for k in ['wireless', 'wi-fi', 'wlan', '802.11']):
+            nic_type = "WLAN"
+        elif any(k in desc_lower or k in name_lower for k in ['vpn', 'virtual', 'tunnel', 'ppp']):
+            nic_type = "VPN/Virtual"
+        elif any(k in desc_lower or k in name_lower for k in ['ethernet', 'pci', 'gbe', 'family']):
+            nic_type = "Ethernet"
+            
+        # 构建单张网卡的信息块
+        ip_str = ", ".join(ips) if ips else "未获取IP"
+        gw_str = ", ".join(gateways) if gateways else "-"
+        dns_str = ", ".join(dns_servers) if dns_servers else "-"
+        
+        # 样式：激活的网卡高亮背景
+        bg_style = "background:#f0fdf4; border-left:3px solid var(--success);" if is_up else "border-left:3px solid var(--gray-200);"
+        
+        nic_html += f'''
+        <div style="padding:8px; margin-bottom:8px; border-radius:4px; font-size:12px; {bg_style}">
+            <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                <span style="font-weight:700; color:{color}">
+                    <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:{color}; margin-right:5px;"></span>
+                    {name} <span style="font-size:10px; color:#666; font-weight:normal;">({nic_type})</span>
+                </span>
+                <span style="color:#666; font-family:monospace;">{mac}</span>
+            </div>
+            <div style="color:#4b5563; line-height:1.6;">
+                <div>🔹 IP: <span style="font-family:monospace;">{ip_str}</span></div>
+                <div>🔸 网关: <span style="font-family:monospace;">{gw_str}</span></div>
+                <div>🔹 DNS: <span style="font-family:monospace;">{dns_str}</span></div>
+            </div>
+        </div>
+        '''
+    nic_html += '</div></div>'
+    
+    # --- 2. 路由部分 ---
+    route_html = '<div style="flex:1;"><strong style="font-size:12px;display:block;margin-bottom:8px;color:var(--gray-600)">🗺️ 缺省路由 (0.0.0.0):</strong><div class="data-list">'
+    if metrics['default_routes']:
+        for r in metrics['default_routes']:
+            # r 格式通常为: "0.0.0.0  0.0.0.0  10.10.100.1  10.10.100.161  281"
+            parts = r.split()
+            if len(parts) >= 5:
+                gw = parts[2]
+                iface_ip = parts[3]
+                metric = parts[4]
+                route_html += f'''
+                <div style="padding:6px 0; border-bottom:1px solid var(--gray-100); font-size:12px; display:flex; justify-content:space-between;">
+                    <span style="font-family:monospace; color:var(--gray-800)">
+                        网关: <b>{gw}</b> via {iface_ip}
+                    </span>
+                    <span style="color:#999; font-size:11px;">Metric: {metric}</span>
+                </div>
+                '''
+    else:
+        route_html += '<div style="color:var(--danger);padding:5px 0">⚠️ 未检测到缺省路由</div>'
+    route_html += '</div></div>'
+    
+    # 使用 Flex 布局并排显示，如果屏幕窄则自动换行
+    return f'<div class="evidence-grid" style="display:flex; gap:20px; flex-wrap:wrap;">{nic_html}{route_html}</div>'
+
+def _generate_issues_and_actions(issues, recommendations) -> str:
+    """生成问题与建议"""
+    html = ''
+    
+    # 问题
+    active_issues = [i for i in issues if _safe_get(i, 'level', 'info') != 'info']
+    if active_issues:
+        html += '<h4 style="font-size:14px;margin-bottom:10px;">⚠️  detected Issues</h4>'
+        for issue in active_issues:
+            level = _safe_get(issue, 'level', 'error')
+            msg = _safe_get(issue, 'message', '')
+            cls = "warn" if level == 'warning' else ""
+            html += f'<div class="issue-box {cls}"><strong>[{level.upper()}]</strong> {msg}</div>'
+    else:
+        html += '<div style="color:var(--success);font-weight:600;margin-bottom:15px;">✅ 未发现严重配置或连通性问题</div>'
+    
+    # 建议
+    if recommendations:
+        html += '<h4 style="font-size:14px;margin-bottom:10px;margin-top:20px;">💡 优化建议</h4><ul class="rec-list">'
+        for rec in recommendations:
+            html += f'<li class="rec-item"><span style="color:var(--primary)">➤</span> {rec}</li>'
+        html += '</ul>'
+        
+    return html
+
+def _generate_risk_tags(status_notes) -> str:
+    if not status_notes: return ''
+    tags = []
+    for note in status_notes:
+        is_warn = any(k in note for k in ['代理', '多网关', '防火墙'])
+        cls = "warn" if is_warn else ""
+        tags.append(f'<span class="tag {cls}">{note}</span>')
+    return f'<div class="risk-tags">{"".join(tags)}</div>'
+
+# 保持之前的 _extract_system_metrics 和 _safe_get 不变
+def _safe_get(obj, key, default=None):
+    if isinstance(obj, dict): return obj.get(key, default)
+    else: return getattr(obj, key, default)
+
+def _extract_system_metrics(system):
+    # ... (保持之前修复后的逻辑不变) ...
+    if not system:
+        return {'gateway_reachable': False, 'primary_gateway': 'N/A', 'dns_resolution_working': False, 'dns_servers': [], 'default_route_exists': False, 'default_routes': [], 'firewall_enabled': False, 'proxy_enabled': False, 'proxy_server': '', 'interfaces': []}
+    
+    fw_enabled = _safe_get(system, 'firewall_enabled', False)
+    proxy_enabled = _safe_get(system, 'proxy_enabled', False)
+    proxy_server = _safe_get(system, 'proxy_server', '')
+    interfaces = _safe_get(system, 'interfaces', [])
+    
+    primary_nic = None
+    for nic in interfaces:
+        if _safe_get(nic, 'status', '') == 'Connected' and _safe_get(nic, 'ip_addresses', []):
+            primary_nic = nic; break
+            
+    primary_gw = 'N/A'
+    gw_reachable = _safe_get(system, 'gateway_reachable', False)
+    if primary_nic:
+        gws = _safe_get(primary_nic, 'gateways', [])
+        if gws: primary_gw = gws[0]
+        
+    dns_servers = _safe_get(primary_nic, 'dns_servers', []) if primary_nic else []
+    dns_working = _safe_get(system, 'dns_resolution_working', False)
+    
+    default_routes = _safe_get(system, 'default_routes', [])
+    
+    return {
+        'gateway_reachable': gw_reachable, 'primary_gateway': primary_gw,
+        'dns_resolution_working': dns_working, 'dns_servers': dns_servers,
+        'default_route_exists': len(default_routes) > 0, 'default_routes': default_routes,
+        'firewall_enabled': fw_enabled, 'proxy_enabled': proxy_enabled,
+        'proxy_server': proxy_server, 'interfaces': interfaces
+    }
+
+
 # 生成报告数据的核心函数
-def collect_report_data(env_result, business_results, cross_border_results=None):
-    """收集报告所需数据（不生成JSON文件，仅供HTML报告使用）"""
+def collect_report_data(env_result, business_results, cross_border_results=None, status_notes: list = None, detailed_conclusion: str = None):
+    """收集报告所需数据（不生成JSON文件，仅供HTML报告使用）
+    
+    Args:
+        env_result: 系统环境检测结果
+        business_results: 业务连通性检测结果
+        cross_border_results: 跨境测试结果(可选)
+        status_notes: 状态备注列表 (如: ['系统代理已开启', '存在多网关路由'])
+        detailed_conclusion: 详细的检测结论字符串
+    """
     import uuid
     from datetime import datetime
     
@@ -695,6 +496,13 @@ def collect_report_data(env_result, business_results, cross_border_results=None)
     report.app_probes = []
     report.issues = []
     
+    # 【新增】保存状态备注和详细结论到报告对象中，供HTML渲染使用
+    # 注意：FinalReport是dataclass，如果未定义这些字段，getattr在HTML生成时需做兼容处理，
+    # 或者我们可以直接利用Python对象的动态特性添加属性（如果FinalReport允许）
+    # 为了稳健性，我们这里直接赋值，假设FinalReport允许动态属性或通过asdict转换时能处理
+    setattr(report, 'status_notes', status_notes or [])
+    setattr(report, 'detailed_conclusion', detailed_conclusion or '')
+    
     if business_results:
         for res in business_results:
             if res.get("target"):
@@ -706,7 +514,7 @@ def collect_report_data(env_result, business_results, cross_border_results=None)
                 }
                 report.app_probes.append(app_probe)
     
-    # 简单评分计算
+    # 简单评分计算 (保持原有逻辑作为保底，但如果传入了detailed_conclusion，HTML中会优先使用传入的结论)
     total_items = len(business_results) if business_results else 1
     failed_items = sum(1 for res in business_results if not res.get("ping_reachable", True)) if business_results else 0
     
@@ -714,19 +522,25 @@ def collect_report_data(env_result, business_results, cross_border_results=None)
     report.environment_score = 100
     report.connectivity_score = 100 - (failed_items * 100 / total_items) if total_items > 0 else 100
     
-    if failed_items > 0:
-        report.conclusion = f"发现 {failed_items} 个连通性问题"
-        report.all_ok = False
+    # 如果没有传入详细结论，则使用默认生成的
+    if not detailed_conclusion:
+        if failed_items > 0:
+            report.conclusion = f"发现 {failed_items} 个连通性问题"
+            report.all_ok = False
+        else:
+            report.conclusion = "所有检测项正常"
+            report.all_ok = True
     else:
-        report.conclusion = "所有检测项正常"
-        report.all_ok = True
-    
+        # 使用传入的详细结论
+        report.conclusion = detailed_conclusion
+        report.all_ok = failed_items == 0
+        
     return report
 
 
 # ================= 跨境链路专项测试报告功能 =================
 
-def collect_cross_border_report_data(cross_border_result, mtu_results=None):
+def collect_cross_border_report_data(cross_border_result, mtu_results=None, dns_comparison_results=None):
     """收集跨境链路专项测试报告所需数据"""
     import uuid
     from datetime import datetime
@@ -765,462 +579,533 @@ def collect_cross_border_report_data(cross_border_result, mtu_results=None):
         report.conclusion = "跨境链路质量较差"
     
     report.all_ok = success_ratio >= 70
+
+    # 【新增】将深度诊断数据动态绑定到 report 对象，供 HTML 渲染
+    setattr(report, 'mtu_results', mtu_results or [])
+    setattr(report, 'dns_comparison_results', dns_comparison_results or [])
+    
+    # 假设 cross_border_result 中已经包含了 google_dns_reachable 状态
+    # 如果没有，需要在 main.py 中计算并传入，这里暂存一个占位符
+    google_dns_ok = getattr(cross_border_result, 'google_dns_reachable', False)
+    setattr(report, 'google_dns_reachable', google_dns_ok)
     
     return report
 
 
 def generate_cross_border_html_report(report: FinalReport, cross_border_result) -> str:
-    """生成商用级跨境链路专项测试HTML报告 - SDWAN运维深度分析"""
+    """生成商用级跨境链路专项测试HTML报告 - SLA仪表盘风格"""
     
-    # 报告基本信息
+    # 1. 数据提取
     report_id = getattr(report, 'report_id', 'N/A')
     timestamp = getattr(report, 'timestamp', 'N/A')
     overall_score = getattr(report, 'overall_score', 0)
-    connectivity_score = getattr(report, 'connectivity_score', 0)
-    conclusion = getattr(report, 'conclusion', '')
     
-    # 跨境链路测试结果
     link_results = getattr(cross_border_result, 'link_results', [])
-    summary = getattr(cross_border_result, 'summary', '')
     test_duration = getattr(cross_border_result, 'test_duration', 0)
-    dns_comparison = getattr(cross_border_result, 'dns_comparison_results', [])
-    precheck = getattr(cross_border_result, 'precheck', None)
     
-    # HTML报告模板（商用级跨境链路专用格式）
+    # 【新增】提取深度诊断数据
+    mtu_results = getattr(report, 'mtu_results', [])
+    dns_comparison = getattr(report, 'dns_comparison_results', [])
+    google_dns_ok = getattr(report, 'google_dns_reachable', False)
+    
+    # 计算细分维度得分 (模拟算法，实际可根据权重调整)
+    avg_latency = sum(getattr(l, 'avg_latency', 0) for l in link_results) / len(link_results) if link_results else 0
+    avg_loss = sum(getattr(l, 'packet_loss', 0) for l in link_results) / len(link_results) if link_results else 0
+    avg_jitter = sum(getattr(l, 'jitter', 0) for l in link_results) / len(link_results) if link_results else 0
+    
+    # 简单换算成百分制得分
+    latency_score = max(0, 100 - (avg_latency / 5)) # 假设500ms为0分
+    loss_score = max(0, 100 - (avg_loss * 20))      # 假设5%丢包为0分
+    jitter_score = max(0, 100 - (avg_jitter * 2))   # 假设50ms抖动为0分
+    
+    # 确定主色调
+    score_color = "#10b981" if overall_score >= 80 else "#f59e0b" if overall_score >= 60 else "#ef4444"
+    score_bg = "#ecfdf5" if overall_score >= 80 else "#fffbeb" if overall_score >= 60 else "#fef2f2"
+    
+    # 2. 生成模块 HTML
+    links_matrix_html = _generate_links_matrix(link_results)
+    #benchmark_html = _generate_benchmark_table(avg_latency, avg_loss, overall_score)
+    recommendations_html = _generate_cross_border_recommendations_html(link_results, overall_score)
+    
+    # 【新增】生成独立链路 SLA 表
+    link_sla_html = _generate_link_sla_table(link_results)
+    
+    # 【新增】提取 DNS 测试的目标域名，如果没有则默认
+    dns_target = "www.google.com"
+    if dns_comparison and len(dns_comparison) > 0:
+        # 尝试从第一个对比结果中获取目标，如果数据结构支持
+        # 注意：当前的 dns_comparison_list 结构可能在 main.py 中构建时没有存 target，
+        # 所以这里主要依赖默认值，或者你可以修改 main.py 传入 target
+        pass 
+        
+    # 【新增】提取网关 DNS IP
+    gw_dns_ip = "N/A"
+    if dns_comparison and len(dns_comparison) > 0:
+        gw_dns_ip = dns_comparison[0].get("server_local", "N/A")
+
+    deep_dive_html = _generate_deep_dive_section(
+        mtu_results, 
+        google_dns_ok, 
+        dns_comparison,
+        dns_target_domain=dns_target,
+        gateway_dns_ip=gw_dns_ip
+    )
+
     return f'''<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>跨境链路质量深度分析报告 - {report_id}</title>
+    <title>跨境链路 SLA 分析报告 - {report_id}</title>
     <style>
+        :root {{
+            --primary: #2563eb; --success: #10b981; --warning: #f59e0b; --danger: #ef4444;
+            --gray-50: #f9fafb; --gray-100: #f3f4f6; --gray-200: #e5e7eb; --gray-600: #4b5563; --gray-800: #1f2937;
+        }}
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{ font-family: 'Microsoft YaHei', 'PingFang SC', 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; background: linear-gradient(135deg, #667eea10 0%, #764ba210 100%); min-height: 100vh; }}
-        .container {{ max-width: 1400px; margin: 0 auto; padding: 30px; }}
-        .document-header {{ background: linear-gradient(135deg, #1a237e 0%, #283593 100%); color: white; padding: 40px; border-radius: 12px; margin-bottom: 30px; box-shadow: 0 8px 25px rgba(0,0,0,0.15); }}
-        .document-header h1 {{ font-size: 34px; margin-bottom: 15px; font-weight: 300; }}
-        .document-subtitle {{ font-size: 18px; opacity: 0.9; margin-bottom: 5px; }}
-        .international-badge {{ background: rgba(255,255,255,0.2); padding: 5px 15px; border-radius: 20px; font-size: 14px; display: inline-block; margin-left: 10px; }}
-        .score-panel {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 25px; margin-bottom: 30px; }}
-        .score-card {{ background: white; padding: 30px; border-radius: 12px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border: 2px solid transparent; }}
-        .score-card.overall {{ background: linear-gradient(135deg, #667eea, #764ba2); color: white; border-color: #5a6fd8; }}
-        .score-card.latency {{ background: linear-gradient(135deg, #4CAF50, #45a049); color: white; border-color: #43a047; }}
-        .score-card.stability {{ background: linear-gradient(135deg, #2196F3, #1976D2); color: white; border-color: #1e88e5; }}
-        .score-value {{ font-size: 48px; font-weight: 700; margin: 15px 0; text-shadow: 0 2px 4px rgba(0,0,0,0.2); }}
-        .score-progress {{ width: 100%; height: 8px; background: rgba(255,255,255,0.3); border-radius: 4px; margin: 15px 0; overflow: hidden; }}
-        .score-progress-fill {{ height: 100%; background: rgba(255,255,255,0.8); }}
-        .score-label {{ font-size: 16px; opacity: 0.95; letter-spacing: 1px; }}
-        .score-desc {{ font-size: 13px; opacity: 0.8; margin-top: 10px; }}
-        .section {{ background: white; padding: 35px; border-radius: 12px; margin-bottom: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-left: 5px solid #667eea; }}
-        .section h2 {{ color: #1a237e; font-size: 24px; border-bottom: 2px solid #e8eaf6; padding-bottom: 15px; margin-bottom: 25px; display: flex; align-items: center; }}
-        .section h2:before {{ content: "🌐"; margin-right: 10px; }}
-        .metric-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin: 20px 0; }}
-        .metric-item {{ background: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center; }}
-        .metric-value {{ font-size: 24px; font-weight: 700; color: #1a237e; }}
-        .metric-label {{ font-size: 14px; color: #5c6bc0; margin-top: 5px; }}
-        .link-status-card {{ background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; margin-bottom: 15px; border-left: 4px solid; }}
-        .link-good {{ border-left-color: #4CAF50; }}
-        .link-warning {{ border-left-color: #FF9800; }}
-        .link-poor {{ border-left-color: #f44336; }}
-        .tech-table {{ width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }}
-        .tech-table th {{ background: linear-gradient(135deg, #e8eaf6, #c5cae9); color: #1a237e; font-weight: 600; padding: 15px; }}
-        .tech-table td {{ padding: 12px 15px; border-bottom: 1px solid #e0e0e0; }}
-        .status-indicator {{ display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }}
-        .status-excellent {{ background: #4CAF50; }}
-        .status-good {{ background: #8BC34A; }}
-        .status-fair {{ background: #FFC107; }}
-        .status-poor {{ background: #f44336; }}
-        .recommendation-panel {{ background: linear-gradient(135deg, #e3f2fd, #bbdefb); padding: 25px; border-radius: 8px; margin: 20px 0; }}
-        .footer {{ text-align: center; padding: 30px; color: #5c6bc0; font-size: 13px; border-top: 1px solid #e8eaf6; margin-top: 40px; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.5; color: var(--gray-800); background: #fff; font-size: 14px; }}
+        
+        .container {{ max-width: 1100px; margin: 0 auto; padding: 40px 20px; }}
+        
+        /* --- 头部 --- */
+        .header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1px solid var(--gray-200); }}
+        .title-group h1 {{ font-size: 24px; font-weight: 700; margin-bottom: 5px; }}
+        .title-group p {{ font-size: 13px; color: var(--gray-600); }}
+        .badge-intl {{ background: #dbeafe; color: #1e40af; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; margin-left: 10px; }}
+        
+        /* --- SLA 仪表盘 (4列) --- */
+        .sla-dashboard {{ display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr; gap: 20px; margin-bottom: 30px; }}
+        .sla-card {{ background: #fff; border: 1px solid var(--gray-200); border-radius: 8px; padding: 20px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }}
+        .sla-card.main {{ background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: white; border: none; }}
+        
+        .sla-val {{ font-size: 42px; font-weight: 800; line-height: 1; margin-bottom: 5px; }}
+        .sla-lbl {{ font-size: 12px; opacity: 0.8; text-transform: uppercase; letter-spacing: 1px; }}
+        .sla-sub {{ font-size: 12px; margin-top: 5px; opacity: 0.7; }}
+        
+        .score-green {{ color: var(--success); }} .score-yellow {{ color: var(--warning); }} .score-red {{ color: var(--danger); }}
+        .main .sla-val {{ color: #fff; }}
+        
+        /* --- 链路矩阵 --- */
+        .section-title {{ font-size: 16px; font-weight: 700; margin-bottom: 15px; display: flex; align-items: center; gap: 8px; }}
+        .link-matrix {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; margin-bottom: 30px; }}
+        .link-card {{ border: 1px solid var(--gray-200); border-radius: 8px; overflow: hidden; }}
+        .link-header {{ padding: 12px 15px; background: var(--gray-50); border-bottom: 1px solid var(--gray-200); display: flex; justify-content: space-between; align-items: center; }}
+        .link-name {{ font-weight: 700; font-size: 15px; }}
+        .link-score {{ font-weight: 800; font-size: 18px; }}
+        
+        .link-body {{ padding: 15px; }}
+        .metric-row {{ display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; }}
+        .metric-label {{ color: var(--gray-600); }}
+        .metric-val {{ font-weight: 600; font-family: monospace; }}
+        
+        .status-dot {{ display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }}
+        .dot-green {{ background: var(--success); }} .dot-yellow {{ background: var(--warning); }} .dot-red {{ background: var(--danger); }}
+        
+        /* --- 行业对标表格 --- */
+        .benchmark-table {{ width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 13px; }}
+        .benchmark-table th {{ text-align: left; padding: 12px; background: var(--gray-50); border-bottom: 2px solid var(--gray-200); color: var(--gray-600); font-weight: 600; }}
+        .benchmark-table td {{ padding: 12px; border-bottom: 1px solid var(--gray-100); }}
+        .benchmark-table tr:last-child td {{ border-bottom: none; }}
+        
+        /* --- 建议面板 --- */
+        .rec-panel {{ background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 20px; }}
+        .rec-item {{ display: flex; gap: 10px; margin-bottom: 10px; font-size: 14px; color: #0c4a6e; }}
+        .rec-icon {{ color: #0284c7; }}
+        
+        .footer {{ text-align: center; font-size: 12px; color: #9ca3af; margin-top: 40px; }}
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- 报告头信息 -->
-        <div class="document-header">
-            <h1>跨境链路质量深度分析报告</h1>
-            <div class="document-subtitle">报告编号: {report_id} <span class="international-badge">🌍 跨境专项</span></div>
-            <div class="document-subtitle">检测时间: {timestamp} | 测试时长: {test_duration:.1f}秒</div>
-            <div class="document-subtitle">检测范围: 国际链路质量 + DNS解析 + 网络稳定性</div>
-        </div>
-
-        <!-- 综合评分面板 -->
-        <div class="score-panel">
-            <div class="score-card overall">
-                <div class="score-label">跨境链路综合评分</div>
-                <div class="score-value">{overall_score:.1f}/100</div>
-                <div class="score-progress">
-                    <div class="score-progress-fill" style="width: {overall_score}%;"></div>
-                </div>
-                <div class="score-desc">国际链路整体质量评估</div>
-            </div>
-            <div class="score-card latency">
-                <div class="score-label">平均延迟评分</div>
-                <div class="score-value">{(100 - min(overall_score * 0.4, 40)):.1f}/100</div>
-                <div class="score-progress">
-                    <div class="score-progress-fill" style="width: {100 - min(overall_score * 0.4, 40)}%;"></div>
-                </div>
-                <div class="score-desc">跨国访问响应速度</div>
-            </div>
-            <div class="score-card stability">
-                <div class="score-label">稳定性评分</div>
-                <div class="score-value">{(overall_score * 0.6):.1f}/100</div>
-                <div class="score-progress">
-                    <div class="score-progress-fill" style="width: {overall_score * 0.6}%;"></div>
-                </div>
-                <div class="score-desc">链路抖动与丢包控制</div>
+        <!-- 1. 头部 -->
+        <div class="header">
+            <div class="title-group">
+                <h1>跨境链路 SLA 深度分析 <span class="badge-intl">🌍 Cross-Border</span></h1>
+                <p>ID: {report_id} | 测试时长: {test_duration:.1f}s | 时间: {timestamp}</p>
             </div>
         </div>
 
-        <!-- 核心质量指标 -->
-        <div class="section">
-            <h2>核心质量指标</h2>
-            <div class="metric-grid">
-                <div class="metric-item">
-                    <div class="metric-value">{len(link_results)}</div>
-                    <div class="metric-label">测试链路数量</div>
-                </div>
-                <div class="metric-item">
-                    <div class="metric-value">{sum(1 for link in link_results if link.stability_score >= 80)}</div>
-                    <div class="metric-label">优质链路数量</div>
-                </div>
-                <div class="metric-item">
-                    <div class="metric-value">{sum(1 for link in link_results if link.avg_latency < 200) if link_results else 0}</div>
-                    <div class="metric-label">低延迟链路</div>
-                </div>
-                <div class="metric-item">
-                    <div class="metric-value">{sum(1 for link in link_results if link.packet_loss < 2) if link_results else 0}</div>
-                    <div class="metric-label">低丢包链路</div>
-                </div>
+        <!-- 2. SLA 仪表盘 -->
+        <div class="sla-dashboard">
+            <div class="sla-card main">
+                <div class="sla-val" style="color: {score_color}">{overall_score:.0f}</div>
+                <div class="sla-lbl">综合健康分</div>
+                <div class="sla-sub">基于延迟/丢包/抖动加权</div>
+            </div>
+            <div class="sla-card">
+                <div class="sla-val {'score-green' if latency_score>=80 else 'score-yellow' if latency_score>=60 else 'score-red'}">{latency_score:.0f}</div>
+                <div class="sla-lbl">延迟得分</div>
+                <div class="sla-sub">Avg: {avg_latency:.1f}ms</div>
+            </div>
+            <div class="sla-card">
+                <div class="sla-val {'score-green' if loss_score>=80 else 'score-yellow' if loss_score>=60 else 'score-red'}">{loss_score:.0f}</div>
+                <div class="sla-lbl">丢包得分</div>
+                <div class="sla-sub">Avg: {avg_loss:.2f}%</div>
+            </div>
+            <div class="sla-card">
+                <div class="sla-val {'score-green' if jitter_score>=80 else 'score-yellow' if jitter_score>=60 else 'score-red'}">{jitter_score:.0f}</div>
+                <div class="sla-lbl">稳定性得分</div>
+                <div class="sla-sub">Jitter: {avg_jitter:.1f}ms</div>
             </div>
         </div>
 
-        <!-- 链路质量详情 -->
-        <div class="section">
-            <h2>链路质量详情分析</h2>
-            {_generate_cross_border_detailed_links_html(link_results)}
+        <!-- 3. 链路质量矩阵 -->
+        <div class="section-title">📊 链路质量对比矩阵</div>
+        <div class="link-matrix">
+            {links_matrix_html}
         </div>
 
-        <!-- 技术性能分析 -->
-        <div class="section">
-            <h2>技术性能分析</h2>
-            {_generate_technical_analysis_html(link_results)}
+        <!-- 4. 深度诊断洞察 (Deep Dive) -->
+        <div class="section-title">🔍 深度诊断洞察 (Deep Dive)</div>
+        {deep_dive_html}
+
+        <!-- 5. 行业对标 -->
+        {link_sla_html}
+
+        <!-- 6. 优化建议 -->
+        <div class="section-title">💡 SD-WAN 优化建议</div>
+        <div class="rec-panel">
+            {recommendations_html}
         </div>
 
-        <!-- 优化建议 -->
-        <div class="section">
-            <h2>SD-WAN优化建议</h2>
-            {_generate_cross_border_recommendations_html(link_results, overall_score)}
-        </div>
-
-        <!-- 行业对标 -->
-        <div class="section">
-            <h2>行业对标分析</h2>
-            <table class="tech-table">
-                <thead>
-                    <tr>
-                        <th>性能指标</th>
-                        <th>当前水平</th>
-                        <th>行业优秀</th>
-                        <th>行业良好</th>
-                        <th>状态评估</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>平均延迟(ms)</td>
-                        <td>{sum(link.avg_latency for link in link_results)/len(link_results) if link_results else 0:.1f}</td>
-                        <td>&lt;150ms</td>
-                        <td>150-300ms</td>
-                        <td><span class="status-indicator status-{'excellent' if (sum(link.avg_latency for link in link_results)/len(link_results) if link_results else 0) < 150 else 'good' if (sum(link.avg_latency for link in link_results)/len(link_results) if link_results else 0) < 300 else 'fair'}"></span>{'优秀' if (sum(link.avg_latency for link in link_results)/len(link_results) if link_results else 0) < 150 else '良好' if (sum(link.avg_latency for link in link_results)/len(link_results) if link_results else 0) < 300 else '一般'}</td>
-                    </tr>
-                    <tr>
-                        <td>平均丢包率(%)</td>
-                        <td>{sum(link.packet_loss for link in link_results)/len(link_results) if link_results else 0:.1f}%</td>
-                        <td>&lt;1%</td>
-                        <td>1-5%</td>
-                        <td><span class="status-indicator status-{'excellent' if (sum(link.packet_loss for link in link_results)/len(link_results) if link_results else 0) < 1 else 'good' if (sum(link.packet_loss for link in link_results)/len(link_results) if link_results else 0) < 5 else 'fair'}"></span>{'优秀' if (sum(link.packet_loss for link in link_results)/len(link_results) if link_results else 0) < 1 else '良好' if (sum(link.packet_loss for link in link_results)/len(link_results) if link_results else 0) < 5 else '一般'}</td>
-                    </tr>
-                    <tr>
-                        <td>稳定性评分</td>
-                        <td>{overall_score:.1f}/100</td>
-                        <td>≥85</td>
-                        <td>70-85</td>
-                        <td><span class="status-indicator status-{'excellent' if overall_score >= 85 else 'good' if overall_score >= 70 else 'fair'}"></span>{'优秀' if overall_score >= 85 else '良好' if overall_score >= 70 else '一般'}</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-
-        <!-- 报告尾部 -->
-        <div class="footer">
-            <p>🌐 报告生成: SD-WAN跨境链路分析平台 v1.3 | 🕐 生成时间: {timestamp}</p>
-            <p>📊 报告编号: {report_id} | 📧 技术支持: cross-border@example.com</p>
-            <p>🔒 本报告包含敏感网络性能数据，请妥善保管</p>
-        </div>
+        <div class="footer">Generated by SD-WAN Intelligent Analyzer v1.2 | Confidential</div>
     </div>
 </body>
 </html>
 '''
 
-
-def _generate_cross_border_links_html(link_results: list) -> str:
-    """生成跨境链路测试结果的HTML表格"""
-    if not link_results:
-        return "<p>未获取到链路测试结果</p>"
+def _generate_deep_dive_section(mtu_results, google_dns_ok, dns_comparison_list, dns_target_domain="www.google.com", gateway_dns_ip="N/A") -> str:
+    """生成深度诊断板块 HTML (支持三源 DNS 对比)"""
     
-    html = '''
-    <table>
-        <thead>
-            <tr>
-                <th>目标</th>
-                <th>平均延迟</th>
-                <th>丢包率</th>
-                <th>抖动</th>
-                <th>稳定性评分</th>
-                <th>状态</th>
-            </tr>
-        </thead>
-        <tbody>
-    '''
-    
-    for link in link_results:
-        target = getattr(link, 'target', 'N/A')
-        avg_latency = getattr(link, 'avg_latency', 0)
-        packet_loss = getattr(link, 'packet_loss', 0)
-        jitter = getattr(link, 'jitter', 0)
-        stability_score = getattr(link, 'stability_score', 0)
-        
-        # 状态图标
-        if stability_score >= 80:
-            status = '<span class="status-success">优秀</span>'
-        elif stability_score >= 60:
-            status = '<span class="status-warning">良好</span>'
-        else:
-            status = '<span class="status-error">较差</span>'
-        
-        html += f'''
-            <tr>
-                <td>{target}</td>
-                <td>{avg_latency:.1f}ms</td>
-                <td>{packet_loss:.1f}%</td>
-                <td>{jitter:.1f}ms</td>
-                <td>{stability_score:.1f}/100</td>
-                <td>{status}</td>
-            </tr>
-        '''
-    
-    html += '''
-        </tbody>
-    </table>
-    '''
-    
-    return html
-
-
-def _generate_cross_border_detailed_links_html(link_results: list) -> str:
-    """生成商用级跨境链路详情HTML内容"""
-    if not link_results:
-        return '''
-        <div class="link-status-card link-poor">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <strong style="font-size: 16px;">⚠️ 无链路测试数据</strong>
-                <span class="status-indicator status-poor"></span>
-            </div>
-            <div style="margin-top: 10px; color: #666; font-size: 14px;">
-                跨境链路测试未获取到有效数据，请检查网络连接或测试配置
-            </div>
-        </div>
-        '''
-    
-    html_content = ''
-    for link in link_results:
-        # 获取链路结果属性
-        link_name = getattr(link, 'link_name', getattr(link, 'target', '未知链路'))
-        target = getattr(link, 'target', '未知目标')
-        avg_latency = getattr(link, 'avg_latency', 0)
-        max_latency = getattr(link, 'max_latency', 0)
-        packet_loss = getattr(link, 'packet_loss', 0)
-        jitter = getattr(link, 'jitter', 0)
-        stability_score = getattr(link, 'stability_score', 0)
-        test_count = getattr(link, 'test_count', 10)  # 默认值
-        
-        # 确定状态和样式
-        if stability_score >= 85:
-            status_class = 'link-good'
-            status_indicator = 'status-excellent'
-            status_text = '优质'
-            quality_color = '#4CAF50'
-        elif stability_score >= 70:
-            status_class = 'link-good'
-            status_indicator = 'status-good'
-            status_text = '良好'
-            quality_color = '#8BC34A'
-        elif stability_score >= 60:
-            status_class = 'link-warning'
-            status_indicator = 'status-fair'
-            status_text = '一般'
-            quality_color = '#FFC107'
-        else:
-            status_class = 'link-poor'
-            status_indicator = 'status-poor'
-            status_text = '较差'
-            quality_color = '#f44336'
-        
-        html_content += f'''
-        <div class="link-status-card {status_class}">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <div>
-                    <strong style="font-size: 18px; color: {quality_color};">{link_name}</strong>
-                    <div style="color: #666; font-size: 14px; margin-top: 5px;">目标: {target}</div>
-                </div>
-                <div style="text-align: right;">
-                    <span class="status-indicator {status_indicator}"></span>
-                    <span style="font-weight: bold; color: {quality_color};">{status_text}</span>
-                    <div style="font-size: 12px; color: #999;">稳定性: {stability_score:.1f}</div>
-                </div>
-            </div>
+    # 1. MTU 部分 (保持原有逻辑)
+    mtu_html = ''
+    if mtu_results:
+        mtu_rows = ''
+        for m in mtu_results:
+            target = m.get('target', 'N/A')
+            mtu_val = m.get('mtu', 0)
+            status_text = m.get('status', 'Unknown')
             
-            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-top: 15px;">
-                <div class="metric-item">
-                    <div class="metric-value" style="color: {(quality_color if avg_latency < 200 else '#f44336') if avg_latency > 0 else '#999'};">
-                        {avg_latency:.1f}<span style="font-size: 12px;">ms</span>
-                    </div>
-                    <div class="metric-label">平均延迟</div>
-                    <div style="font-size: 11px; color: #666;">{'优秀' if avg_latency < 150 else '良好' if avg_latency < 300 else '一般'}</div>
-                </div>
-                
-                <div class="metric-item">
-                    <div class="metric-value" style="color: {(quality_color if packet_loss < 2 else '#f44336') if packet_loss >= 0 else '#999'};">
-                        {packet_loss:.1f}<span style="font-size: 12px;">%</span>
-                    </div>
-                    <div class="metric-label">丢包率</div>
-                    <div style="font-size: 11px; color: #666;">{'优秀' if packet_loss < 1 else '良好' if packet_loss < 5 else '需优化'}</div>
-                </div>
-                
-                <div class="metric-item">
-                    <div class="metric-value" style="color: {(quality_color if jitter < 30 else '#f44336') if jitter >= 0 else '#999'};">
-                        {jitter:.1f}<span style="font-size: 12px;">ms</span>
-                    </div>
-                    <div class="metric-label">网络抖动</div>
-                    <div style="font-size: 11px; color: #666;">{'稳定' if jitter < 20 else '可控' if jitter < 50 else '较高'}</div>
-                </div>
-                
-                <div class="metric-item">
-                    <div class="metric-value" style="color: {quality_color};">
-                        {test_count if test_count > 0 else 'N/A'}
-                    </div>
-                    <div class="metric-label">测试次数</div>
-                    <div style="font-size: 11px; color: #666;">{'充分' if test_count >= 10 else '不足'}</div>
-                </div>
+            if '正常' in status_text:
+                status_display = '<span style="color:var(--success)">✅ 正常</span>'
+            elif '偏低' in status_text:
+                status_display = '<span style="color:var(--warning)">⚠️ 偏低</span>'
+            elif '不可达' in status_text:
+                status_display = '<span style="color:var(--gray-400)">⚪ 不可达</span>'
+            else:
+                status_display = '<span style="color:var(--danger)">❌ 异常</span>'
+            
+            mtu_rows += f'<tr><td>{target}</td><td>{mtu_val} Bytes</td><td>{status_display}</td></tr>'
+        
+        mtu_html = f'''
+        <div class="panel">
+            <div class="panel-head">📏 MTU 路径探测</div>
+            <div class="panel-body" style="padding:0;">
+                <table class="benchmark-table" style="margin-bottom:0;">
+                    <thead><tr><th>目标</th><th>最佳 MTU</th><th>状态</th></tr></thead>
+                    <tbody>{mtu_rows}</tbody>
+                </table>
             </div>
         </div>
         '''
-    
-    return html_content
+    else:
+        mtu_html = '<div class="panel"><div class="panel-head">📏 MTU 路径探测</div><div class="panel-body"><p style="color:#999;text-align:center">未执行 MTU 探测</p></div></div>'
 
+    # 2. DNS 综合诊断面板 (升级为三源对比)
+    dns_status_badge = '<span class="badge b-green">连通</span>' if google_dns_ok else '<span class="badge b-red">不可达</span>'
+    dns_hint = "基础网络可达性正常" if google_dns_ok else "国际出口可能受阻或存在 ICMP 拦截"
+    
+    # 构建 DNS 对比表格行
+    dns_table_rows = ''
+    if dns_comparison_list:
+        for d in dns_comparison_list:
+            # 提取三源数据
+            gw_ips = d.get("ip_local", [])
+            sys_ips = d.get("ip_system", []) # 新增：系统DNS结果
+            pub_ips = d.get("ip_public", [])
+            
+            # 格式化 IP 显示
+            gw_ip_str = ", ".join(gw_ips) if isinstance(gw_ips, list) and gw_ips else "-"
+            sys_ip_str = ", ".join(sys_ips) if isinstance(sys_ips, list) and sys_ips else "-"
+            pub_ip_str = ", ".join(pub_ips) if isinstance(pub_ips, list) and pub_ips else "-"
+            
+            # 状态图标
+            gw_status_icon = "✅" if d.get('status_local') == 'success' else "❌"
+            sys_status_icon = "✅" if d.get('status_system') == 'success' else "❌" # 新增
+            pub_status_icon = "✅" if d.get('status_public') == 'success' else "❌"
+            
+            # 对比结论
+            comparison_note = d.get("note", "未对比")
+            if not comparison_note:
+                # 简单兜底逻辑
+                if d.get('status_public') == 'success':
+                    comparison_note = "以公共DNS为基准对比完成"
+                else:
+                    comparison_note = "公共DNS解析失败，无法对比"
 
-def _generate_technical_analysis_html(link_results: list) -> str:
-    """生成跨境链路技术分析HTML内容"""
-    if not link_results:
-        return '<p>暂无技术分析数据</p>'
-    
-    # 计算统计指标
-    total_links = len(link_results)
-    avg_latency = sum(getattr(link, 'avg_latency', 0) for link in link_results) / total_links
-    avg_packet_loss = sum(getattr(link, 'packet_loss', 0) for link in link_results) / total_links
-    avg_jitter = sum(getattr(link, 'jitter', 0) for link in link_results) / total_links
-    
-    # 性能评估
-    latency_eval = '国际专线水平' if avg_latency < 150 else '商用VPN水平' if avg_latency < 300 else '普通互联网水平'
-    packet_loss_eval = '优质' if avg_packet_loss < 1 else '可接受' if avg_packet_loss < 5 else '需优化'
-    jitter_eval = '高稳定性' if avg_jitter < 20 else '稳定性一般' if avg_jitter < 50 else '抖动较高'
-    
-    return f'''
-    <div style="margin: 20px 0;">
-        <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; margin-bottom: 15px;">
-            <strong>📊 总体性能统计</strong>
-            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-top: 10px;">
-                <div>
-                    <div style="font-size: 12px; color: #6b7280;">测试链路数量</div>
-                    <div style="font-size: 18px; font-weight: bold; color: #1a237e;">{total_links}</div>
-                </div>
-                <div>
-                    <div style="font-size: 12px; color: #6b7280;">平均延迟</div>
-                    <div style="font-size: 18px; font-weight: bold; color: {('#4CAF50' if avg_latency < 150 else '#FF9800' if avg_latency < 300 else '#f44336') if avg_latency > 0 else '#999'};">{avg_latency:.1f}ms</div>
-                </div>
-                <div>
-                    <div style="font-size: 12px; color: #6b7280;">平均丢包率</div>
-                    <div style="font-size: 18px; font-weight: bold; color: {('#4CAF50' if avg_packet_loss < 1 else '#FF9800' if avg_packet_loss < 5 else '#f44336') if avg_packet_loss >= 0 else '#999'};">{avg_packet_loss:.1f}%</div>
-                </div>
-                <div>
-                    <div style="font-size: 12px; color: #6b7280;">平均抖动</div>
-                    <div style="font-size: 18px; font-weight: bold; color: {('#4CAF50' if avg_jitter < 20 else '#FF9800' if avg_jitter < 50 else '#f44336') if avg_jitter >= 0 else '#999'};">{avg_jitter:.1f}ms</div>
-                </div>
-            </div>
+            # 获取具体的 DNS 服务器地址
+            server_local = d.get("server_local", gateway_dns_ip)
+            server_system = d.get("server_system", "System Default") # 新增
+            server_public = d.get("server_public", "8.8.8.8")
+
+            # --- 第一行：网关 DNS ---
+            dns_table_rows += f'''
+            <tr>
+                <td style="font-weight:600; color:var(--gray-600)">{server_local}<br><span style="font-size:11px;color:#999">(默认网关)</span></td>
+                <td>{gw_status_icon} {d.get("status_local", "")}</td>
+                <td style="font-family:monospace; font-size:12px; word-break:break-all;">{gw_ip_str}</td>
+                <td rowspan="3" style="vertical-align:middle; font-size:12px; color:#666; border-left:1px solid #eee; background:#f9fafb;">
+                    <div style="font-weight:600; margin-bottom:4px;">深度分析:</div>
+                    {comparison_note}
+                </td>
+            </tr>
+            '''
+            
+            # --- 第二行：系统默认 DNS (新增) ---
+            dns_table_rows += f'''
+            <tr>
+                <td style="font-weight:600; color:var(--gray-600)">{server_system}<br><span style="font-size:11px;color:#999">(系统配置)</span></td>
+                <td>{sys_status_icon} {d.get("status_system", "")}</td>
+                <td style="font-family:monospace; font-size:12px; word-break:break-all;">{sys_ip_str}</td>
+            </tr>
+            '''
+
+            # --- 第三行：公共 DNS ---
+            dns_table_rows += f'''
+            <tr>
+                <td style="font-weight:600; color:var(--gray-600)">{server_public}<br><span style="font-size:11px;color:#999">(公共参考)</span></td>
+                <td>{pub_status_icon} {d.get("status_public", "")}</td>
+                <td style="font-family:monospace; font-size:12px; word-break:break-all;">{pub_ip_str}</td>
+            </tr>
+            '''
+    else:
+        dns_table_rows = '<tr><td colspan="4" style="text-align:center;color:#999;">无 DNS 对比数据</td></tr>'
+
+    # 组合 DNS 面板
+    dns_panel_html = f'''
+    <div class="panel">
+        <div class="panel-head">
+            <span>⚖️ DNS 解析深度对比 (三源)</span>
+            <span style="float:right; font-size:12px; font-weight:normal; color:var(--gray-600)">
+                测试域名: <strong>{dns_target_domain}</strong>
+            </span>
         </div>
-        
-        <div style="background: #fff3e0; padding: 15px; border-radius: 8px;">
-            <strong>💡 技术性能评估</strong>
-            <ul style="margin: 10px 0; padding-left: 20px; color: #666;">
-                <li>延迟水平: <strong>{latency_eval}</strong> ({avg_latency:.1f}ms)</li>
-                <li>丢包控制: <strong>{packet_loss_eval}</strong> ({avg_packet_loss:.1f}%)</li>
-                <li>抖动表现: <strong>{jitter_eval}</strong> ({avg_jitter:.1f}ms)</li>
-                <li>链路可靠性: <strong>{(sum(1 for link in link_results if getattr(link, 'stability_score', 0) >= 70) / total_links * 100):.1f}%</strong> 链路达到商用标准</li>
-            </ul>
+        <div class="panel-body">
+            <!-- 顶部：Google DNS 连通性概览 -->
+            <div style="display:flex; justify-content:space-between; align-items:center; background:#f0f9ff; padding:10px 15px; border-radius:6px; margin-bottom:15px; border:1px solid #bae6fd;">
+                <div>
+                    <div style="font-size:12px; color:#0369a1; font-weight:600;">🌐 Google DNS (8.8.8.8) 基础连通性</div>
+                    <div style="font-size:12px; color:#0c4a6e; margin-top:2px;">{dns_hint}</div>
+                </div>
+                <div>{dns_status_badge}</div>
+            </div>
+
+            <!-- 下部：详细对比表格 -->
+            <table class="benchmark-table" style="margin-bottom:0;">
+                <thead>
+                    <tr>
+                        <th style="width:25%">DNS 服务器来源</th>
+                        <th style="width:15%">解析状态</th>
+                        <th style="width:35%">解析 IP 地址</th>
+                        <th style="width:25%">对比结论</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {dns_table_rows}
+                </tbody>
+            </table>
         </div>
     </div>
     '''
 
+    return f'''
+    <div style="display:grid; gap:20px;">
+        {mtu_html}
+        {dns_panel_html}
+    </div>
+    '''
 
-def _generate_cross_border_recommendations_html(link_results: list, overall_score: float) -> str:
-    """生成跨境链路优化建议HTML内容"""
+def _generate_links_matrix(link_results: list) -> str:
+    """生成链路卡片矩阵"""
     if not link_results:
-        recommendations = [
-            "🔍 建议重新执行跨境链路测试，确保获得完整的性能数据",
-            "🌐 检查网络连接状态，确保能够访问国际目标",
-            "⏱️ 验证测试配置参数，确保测试间隔和包数设置合理"
-        ]
-    else:
-        recommendations = []
-        
-        # 根据性能指标生成建议
-        avg_latency = sum(getattr(link, 'avg_latency', 0) for link in link_results) / len(link_results)
-        avg_packet_loss = sum(getattr(link, 'packet_loss', 0) for link in link_results) / len(link_results)
-        
-        if avg_latency > 300:
-            recommendations.append("🚀 建议启用SD-WAN智能路由，选择延迟更低的国际链路")
-        elif avg_latency > 200:
-            recommendations.append("⚡ 考虑配置链路优先级，将高延迟链路作为备用")
-        
-        if avg_packet_loss > 5:
-            recommendations.append("🔧 启用丢包重传机制，优化TCP窗口大小设置")
-        elif avg_packet_loss > 2:
-            recommendations.append("🔍 监控链路质量，考虑使用FEC前向纠错技术")
-        
-        if overall_score >= 85:
-            recommendations.append("✅ 当前跨境链路质量优秀，无需特殊优化")
-        elif overall_score >= 70:
-            recommendations.append("📈 轻微优化建议：监控关键业务链路的稳定性表现")
-        else:
-            recommendations.append("⚠️ 建议联系网络供应商，评估国际专线或云连接方案")
-        
-        recommendations.append("🔒 定期执行跨境链路监控，建立性能基线数据")
-        recommendations.append("📊 配置性能告警，当链路质量下降时及时通知")
+        return '<div style="grid-column: 1/-1; text-align:center; color:#999; padding:20px;">无链路测试数据</div>'
     
-    html_content = '<div class="recommendation-panel">'
-    html_content += '<strong style="display: block; margin-bottom: 15px; color: #1976D2;">🔧 优化建议与行动计划</strong>'
-    
-    for i, rec in enumerate(recommendations, 1):
-        html_content += f'''
-        <div style="display: flex; align-items: center; margin-bottom: 10px; padding: 10px; background: rgba(255,255,255,0.5); border-radius: 5px;">
-            <span style="background: #1976D2; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; margin-right: 10px;">{i}</span>
-            <span style="flex: 1;">{rec}</span>
+    html = ''
+    for link in link_results:
+        name = getattr(link, 'link_name', getattr(link, 'target', 'Unknown Link'))
+        target = getattr(link, 'target', '')
+        latency = getattr(link, 'avg_latency', 0)
+        loss = getattr(link, 'packet_loss', 0)
+        jitter = getattr(link, 'jitter', 0)
+        score = getattr(link, 'stability_score', 0)
+        
+        # 状态颜色
+        if score >= 80: color_cls = "dot-green"; score_cls = "score-green"
+        elif score >= 60: color_cls = "dot-yellow"; score_cls = "score-yellow"
+        else: color_cls = "dot-red"; score_cls = "score-red"
+        
+        html += f'''
+        <div class="link-card">
+            <div class="link-header">
+                <div>
+                    <span class="status-dot {color_cls}"></span>
+                    <span class="link-name">{name}</span>
+                </div>
+                <span class="link-score {score_cls}">{score:.0f}</span>
+            </div>
+            <div class="link-body">
+                <div class="metric-row">
+                    <span class="metric-label">目标</span>
+                    <span class="metric-val">{target}</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">平均延迟</span>
+                    <span class="metric-val {'score-red' if latency>300 else 'score-yellow' if latency>200 else ''}">{latency:.1f} ms</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">丢包率</span>
+                    <span class="metric-val {'score-red' if loss>2 else 'score-yellow' if loss>0.5 else ''}">{loss:.2f} %</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">网络抖动</span>
+                    <span class="metric-val">{jitter:.1f} ms</span>
+                </div>
+            </div>
         </div>
         '''
+    return html
+
+def _generate_link_sla_table(link_results: list) -> str:
+    """
+    生成各链路独立 SLA 达标详情表
+    替代原有的平均值对标，确保每条业务链路都被独立评估
+    """
+    if not link_results:
+        return '<p style="text-align:center; color:#999;">无链路数据</p>'
+
+    rows_html = ""
+    for link in link_results:
+        target = getattr(link, 'target', 'Unknown')
+        lat = getattr(link, 'avg_latency', 0)
+        loss = getattr(link, 'packet_loss', 0)
+        jitter = getattr(link, 'jitter', 0)
+        score = getattr(link, 'stability_score', 0)
+
+        # --- 单项指标判定逻辑 (可根据实际 SLA 要求调整阈值) ---
+        
+        # 1. 延迟判定 & 2. 丢包判定 (联合判断不可达)
+        # 如果丢包100% 或者 延迟大于 5000ms (我们设定的不可达阈值)，则视为不可达
+        is_unreachable = (loss >= 100.0) or (lat > 5000)
+        
+        if is_unreachable:
+            # 不可达状态
+            lat_display = "<span style='color:#ef4444; font-weight:bold;'>不可达</span>"
+            lat_status = '<span class="badge b-red">失败</span>'
+            loss_display = f"<span style='color:#ef4444; font-weight:bold;'>{loss:.1f}%</span>"
+            loss_status = '<span class="badge b-red">严重</span>'
+            jitter_display = "<span style='color:#999;'>-</span>"
+            overall_verdict = '<span style="color:#ef4444; font-weight:bold; font-size:14px;">❌ 链路中断</span>'
+        else:
+            if lat < 150:
+                lat_status = '<span class="badge b-green">优秀</span>'
+                lat_class = "text-green"
+            elif lat < 300:
+                lat_status = '<span class="badge b-yellow">合格</span>'
+                lat_class = "text-yellow"
+            else:
+                lat_status = '<span class="badge b-red">超标</span>'
+                lat_class = "text-red"
+
+            # 2. 丢包判定 (<1% 优秀, <3% 合格, >3% 严重)
+            if loss < 1:
+                loss_status = '<span class="badge b-green">正常</span>'
+            elif loss < 3:
+                loss_status = '<span class="badge b-yellow">轻微</span>'
+            else:
+                loss_status = '<span class="badge b-red">严重</span>'
+
+            # 3. 综合 SLA 结论
+            if score >= 80:
+                overall_verdict = '<span style="color:#10b981; font-weight:bold;">✅ 达标</span>'
+            elif score >= 60:
+                overall_verdict = '<span style="color:#f59e0b; font-weight:bold;">⚠️ 临界</span>'
+            else:
+                overall_verdict = '<span style="color:#ef4444; font-weight:bold;">❌ 不达标</span>'
+
+        rows_html += f'''
+        <tr>
+            <td><strong>{target}</strong></td>
+            <td class="{lat_class}">{lat:.1f} ms</td>
+            <td>{lat_status}</td>
+            <td>{loss:.2f} %</td>
+            <td>{loss_status}</td>
+            <td>{jitter:.1f} ms</td>
+            <td>{overall_verdict}</td>
+        </tr>
+        '''
+
+    return f'''
+    <div class="section-title">📋 各业务链路 SLA 达标详情</div>
+    <div style="margin-bottom: 10px; font-size: 13px; color: #666;">
+        说明：以下针对每条独立链路进行 SLA 合规性检查，而非整体平均。
+    </div>
+    <table class="benchmark-table">
+        <thead>
+            <tr>
+                <th style="width: 20%">业务目标</th>
+                <th style="width: 12%">平均延迟</th>
+                <th style="width: 12%">延迟评级</th>
+                <th style="width: 12%">丢包率</th>
+                <th style="width: 12%">丢包评级</th>
+                <th style="width: 12%">网络抖动</th>
+                <th style="width: 20%">SLA 结论</th>
+            </tr>
+        </thead>
+        <tbody>
+            {rows_html}
+        </tbody>
+    </table>
+    '''
+
+# 保留原函数名以便兼容，但内部调用新逻辑，或者直接删除原函数并在模板中改用新函数
+def _generate_benchmark_table(avg_lat, avg_loss, overall_score) -> str:
+    """
+    兼容旧接口，但建议直接在 generate_cross_border_html_report 中调用 _generate_link_sla_table
+    此处返回空或提示，避免混淆
+    """
+    return "<!-- 已迁移至独立链路 SLA 表 -->"
+
+def _generate_cross_border_recommendations_html(link_results: list, overall_score: float) -> str:
+    """生成跨境优化建议"""
+    recs = []
     
-    html_content += '</div>'
-    return html_content
+    if not link_results:
+        return '<div class="rec-item"><span class="rec-icon">ℹ️</span> 无足够数据进行建议</div>'
+        
+    avg_lat = sum(getattr(l, 'avg_latency', 0) for l in link_results) / len(link_results)
+    avg_loss = sum(getattr(l, 'packet_loss', 0) for l in link_results) / len(link_results)
+    
+    if avg_lat > 300:
+        recs.append("🚀 <strong>延迟过高</strong>：建议启用 SD-WAN 智能选路，优先选择延迟较低的 POP 点接入。")
+    elif avg_lat > 200:
+        recs.append("⚡ <strong>延迟中等</strong>：建议开启 TCP 加速或协议优化功能，提升应用层响应速度。")
+        
+    if avg_loss > 2:
+        recs.append("🔧 <strong>丢包严重</strong>：强烈建议开启 FEC (前向纠错) 或 ARQ (自动重传) 功能以保障业务连续性。")
+    elif avg_loss > 0.5:
+        recs.append("📉 <strong>轻微丢包</strong>：建议监控链路波动，考虑配置多链路负载分担以降低单链路压力。")
+        
+    if overall_score >= 85:
+        recs.append("✅ <strong>链路质量优秀</strong>：当前配置符合核心业务要求，建议保持定期监控。")
+    elif overall_score < 60:
+        recs.append("⚠️ <strong>质量较差</strong>：建议检查物理线路质量，或联系运营商排查跨境拥塞情况。")
+        
+    recs.append("📊 <strong>基线建立</strong>：建议每周执行一次跨境测试，建立性能基线以便及时发现劣化。")
+    
+    html = ''
+    for rec in recs:
+        html += f'<div class="rec-item"><span class="rec-icon">➤</span> {rec}</div>'
+    return html
 
 
 def export_cross_border_html_report(report: FinalReport, cross_border_result, path: str = None):

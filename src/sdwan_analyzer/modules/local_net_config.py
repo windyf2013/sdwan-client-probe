@@ -23,6 +23,7 @@ def get_network_adapters() -> List[NicDetail]:
     """
     使用稳健的逐行解析法获取所有网络适配器
     参考 nic_info.py 的实现，确保与系统层检测的一致性
+    返回所有适配器，包括未启用的
     """
     nics = []
     output = _run_cmd(["ipconfig", "/all"])
@@ -113,13 +114,28 @@ def get_network_adapters() -> List[NicDetail]:
     # 添加最后一个网卡
     if current_nic:
         nics.append(current_nic)
+    
+    # 返回所有适配器，包括未启用的
+    return nics
 
+def get_all_network_adapters() -> List[NicDetail]:
+    """
+    获取所有网络适配器，包括未启用的
+    用于诊断功能中的完整环境分析
+    """
+    return get_network_adapters()
+
+def get_active_network_adapters() -> List[NicDetail]:
+    """
+    获取活跃的网络适配器（排除 Disconnected 状态）
+    用于主要功能
+    """
+    all_nics = get_network_adapters()
     # 过滤：只保留有 MAC 地址或 IP 地址的有效网卡，且状态不是明确断开的
     valid_nics = [
-        nic for nic in nics 
+        nic for nic in all_nics 
         if (nic.ip_addresses or nic.mac_address) and nic.status != "Disconnected"
     ]
-    
     return valid_nics
 
 def identify_primary_nic(nics: List[NicDetail]) -> Optional[NicDetail]:

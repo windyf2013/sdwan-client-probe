@@ -161,6 +161,7 @@ class NetworkInterface:
     description: str
     mac_address: str
     ip_addresses: List[str]
+    subnet_masks: List[str]
     gateways: List[str]
     dns_servers: List[str]
     is_dhcp: bool
