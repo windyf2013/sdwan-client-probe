@@ -316,18 +316,6 @@ class LoggerFactory:
         logging.setLoggerClass(ContextAwareLogger)
         
         self._initialized = True
-        
-        # 记录初始化日志
-        logger = self.get_logger(__name__)
-        logger.info(
-            "日志系统初始化完成",
-            event="logger_initialized",
-            extra={
-                "log_level": log_level,
-                "log_format": log_format,
-                "logger_class": "ContextAwareLogger"
-            }
-        )
     
     def get_logger(self, name: str) -> ContextAwareLogger:
         """获取日志记录器"""

@@ -101,7 +101,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='瑞斯康达跨境FAQ助手',
+    name='瑞斯康达跨境FAQ小助手',
     debug=False,
     bootloader_ignore_signals=False,
     upx=True,    # 使用 UPX 压缩 (需安装 upx)

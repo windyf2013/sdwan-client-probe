@@ -17,7 +17,7 @@ def export_html_report(report: FinalReport, path: Optional[str] = None):
     # 第一节: 处理路径参数
     if path is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"SDWAN_Report_{timestamp}.html"
+        filename = f"瑞斯康达跨境FAQ--用户环境一键自查报告_{timestamp}.html"
         path = os.path.join(REPORT_DIR, filename)
     
     # 第二节: 生成HTML内容
@@ -82,7 +82,7 @@ def generate_commercial_html_report(report: FinalReport) -> str:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>瑞斯康达--跨境网络诊断报告 - {report_id}</title>
+    <title>瑞斯康达跨境FAQ--用户环境一键自查报告 - {report_id}</title>
     <style>
         :root {{
             --primary: #2563eb; --success: #10b981; --warning: #f59e0b; --danger: #ef4444;
@@ -168,7 +168,7 @@ def generate_commercial_html_report(report: FinalReport) -> str:
         <!-- 1. 头部 -->
         <div class="header">
             <div class="title-group">
-                <h1>SD-WAN 终端诊断报告</h1>
+                <h1>瑞斯康达跨境FAQ--用户环境一键自查报告</h1>
                 <p>ID: {report_id} | 时间: {timestamp}</p>
             </div>
             <div class="score-box">
@@ -315,86 +315,143 @@ def _generate_app_list(app_probes) -> str:
     return html
 
 def _generate_evidence_section(system) -> str:
-    """生成证据层：网卡和路由详情 (增强版)"""
+    """生成证据层：网卡和路由详情 (优化版：布局宽松 + 路由子网掩码)"""
     metrics = _extract_system_metrics(system)
     
-    # --- 1. 网卡部分 (增强显示) ---
-    nic_html = '<div style="margin-right:20px; flex:1;"><strong style="font-size:12px;display:block;margin-bottom:8px;color:var(--gray-600)">📡 网络接口详情:</strong><div class="data-list" style="max-height:300px;">'
+    # --- 1. 网卡部分 (优化布局) ---
+    all_interfaces = metrics.get('interfaces', [])
     
-    for nic in metrics['interfaces']:
-        name = _safe_get(nic, 'name', 'Unknown')
-        status = _safe_get(nic, 'status', 'Disconnected')
-        desc = _safe_get(nic, 'description', '')
-        mac = _safe_get(nic, 'mac_address', '')
-        ips = _safe_get(nic, 'ip_addresses', [])
-        gateways = _safe_get(nic, 'gateways', [])
-        dns_servers = _safe_get(nic, 'dns_servers', [])
-        
-        is_up = status == 'Connected' and ips
-        color = "var(--success)" if is_up else "var(--gray-400)"
-        
-        # 智能识别网卡类型
-        nic_type = "Ethernet" # 默认
-        desc_lower = desc.lower()
-        name_lower = name.lower()
-        
-        if any(k in desc_lower or k in name_lower for k in ['wireless', 'wi-fi', 'wlan', '802.11']):
-            nic_type = "WLAN"
-        elif any(k in desc_lower or k in name_lower for k in ['vpn', 'virtual', 'tunnel', 'ppp']):
-            nic_type = "VPN/Virtual"
-        elif any(k in desc_lower or k in name_lower for k in ['ethernet', 'pci', 'gbe', 'family']):
-            nic_type = "Ethernet"
+    # 分类：已连接 vs 其他
+    enabled_nics = [nic for nic in all_interfaces if _safe_get(nic, 'status') == 'Connected']
+    disabled_nics = [nic for nic in all_interfaces if _safe_get(nic, 'status') != 'Connected']
+    
+    html_parts = []
+    
+    # A. 已启用网卡 (使用更宽松的卡片布局)
+    html_parts.append('<div style="margin-bottom: 25px;">')
+    html_parts.append('<strong style="font-size:14px; display:block; margin-bottom:12px; color:var(--gray-800); border-left:4px solid var(--success); padding-left:10px;">✅ 已启用网络接口</strong>')
+    html_parts.append('<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px;">')
+    
+    if enabled_nics:
+        for nic in enabled_nics:
+            name = _safe_get(nic, 'name', 'Unknown')
+            desc = _safe_get(nic, 'description', '')
+            mac = _safe_get(nic, 'mac_address', '')
+            ips = _safe_get(nic, 'ip_addresses', [])
+            masks = _safe_get(nic, 'subnet_masks', [])
+            gateways = _safe_get(nic, 'gateways', [])
+            dns_servers = _safe_get(nic, 'dns_servers', [])
+            is_primary = _safe_get(nic, 'is_primary', False)
             
-        # 构建单张网卡的信息块
-        ip_str = ", ".join(ips) if ips else "未获取IP"
-        gw_str = ", ".join(gateways) if gateways else "-"
-        dns_str = ", ".join(dns_servers) if dns_servers else "-"
-        
-        # 样式：激活的网卡高亮背景
-        bg_style = "background:#f0fdf4; border-left:3px solid var(--success);" if is_up else "border-left:3px solid var(--gray-200);"
-        
-        nic_html += f'''
-        <div style="padding:8px; margin-bottom:8px; border-radius:4px; font-size:12px; {bg_style}">
-            <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                <span style="font-weight:700; color:{color}">
-                    <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:{color}; margin-right:5px;"></span>
-                    {name} <span style="font-size:10px; color:#666; font-weight:normal;">({nic_type})</span>
-                </span>
-                <span style="color:#666; font-family:monospace;">{mac}</span>
+            # 智能识别类型
+            nic_type = "Ethernet"
+            desc_lower = desc.lower()
+            name_lower = name.lower()
+            if any(k in desc_lower or k in name_lower for k in ['wireless', 'wi-fi', 'wlan', '802.11']):
+                nic_type = "WLAN"
+            elif any(k in desc_lower or k in name_lower for k in ['vpn', 'virtual', 'tunnel', 'ppp']):
+                nic_type = "VPN/Virtual"
+            
+            # 构建 IP/Mask 显示
+            ip_details = []
+            for i, ip in enumerate(ips):
+                mask = masks[i] if i < len(masks) else "?"
+                ip_details.append(f"{ip} <span style='color:#999'>/{mask}</span>")
+            ip_html = "<br>".join(ip_details) if ip_details else "<span style='color:#999'>未获取IP</span>"
+            
+            gw_html = ", ".join(gateways) if gateways else "<span style='color:#999'>无</span>"
+            dns_html = ", ".join(dns_servers) if dns_servers else "<span style='color:#999'>无</span>"
+            
+            primary_tag = '<span style="background:var(--danger); color:white; font-size:10px; padding:2px 6px; border-radius:4px; margin-left:8px; vertical-align:middle;">主网卡</span>' if is_primary else ''
+            
+            html_parts.append(f'''
+            <div style="background:#fff; border:1px solid var(--gray-200); border-radius:8px; padding:15px; box-shadow:0 2px 4px rgba(0,0,0,0.02);">
+                <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:10px; border-bottom:1px solid var(--gray-100); padding-bottom:8px;">
+                    <div>
+                        <div style="font-weight:700; color:var(--gray-800); font-size:14px;">{name}{primary_tag}</div>
+                        <div style="font-size:12px; color:var(--gray-500); margin-top:2px;">{desc} ({nic_type})</div>
+                    </div>
+                    <div style="font-family:monospace; font-size:11px; color:var(--gray-400);">{mac}</div>
+                </div>
+                <div style="font-size:13px; line-height:1.8; color:var(--gray-700);">
+                    <div><strong style="color:var(--gray-500); width:60px; display:inline-block;">IP地址:</strong> {ip_html}</div>
+                    <div><strong style="color:var(--gray-500); width:60px; display:inline-block;">网关:</strong> {gw_html}</div>
+                    <div><strong style="color:var(--gray-500); width:60px; display:inline-block;">DNS:</strong> {dns_html}</div>
+                </div>
             </div>
-            <div style="color:#4b5563; line-height:1.6;">
-                <div>🔹 IP: <span style="font-family:monospace;">{ip_str}</span></div>
-                <div>🔸 网关: <span style="font-family:monospace;">{gw_str}</span></div>
-                <div>🔹 DNS: <span style="font-family:monospace;">{dns_str}</span></div>
-            </div>
-        </div>
-        '''
-    nic_html += '</div></div>'
+            ''')
+    else:
+        html_parts.append('<div style="grid-column:1/-1; padding:20px; text-align:center; color:#999; background:var(--gray-50); border-radius:8px;">无已连接网卡</div>')
     
-    # --- 2. 路由部分 ---
-    route_html = '<div style="flex:1;"><strong style="font-size:12px;display:block;margin-bottom:8px;color:var(--gray-600)">🗺️ 缺省路由 (0.0.0.0):</strong><div class="data-list">'
+    html_parts.append('</div></div>') # End grid and section
+
+    # B. 未启用/未连接网卡 (简化列表，避免占用过多空间)
+    if disabled_nics:
+        html_parts.append('<div style="margin-bottom: 25px; opacity:0.8;">')
+        html_parts.append('<strong style="font-size:14px; display:block; margin-bottom:12px; color:var(--gray-500); border-left:4px solid var(--gray-300); padding-left:10px;">⚪ 未启用/未连接接口</strong>')
+        html_parts.append('<div style="background:var(--gray-50); border-radius:8px; padding:10px 15px; max-height:200px; overflow-y:auto;">')
+        
+        for nic in disabled_nics:
+            name = _safe_get(nic, 'name', 'Unknown')
+            desc = _safe_get(nic, 'description', '')
+            status = _safe_get(nic, 'status', 'Unknown')
+            
+            html_parts.append(f'''
+            <div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed var(--gray-200); font-size:12px;">
+                <span style="color:var(--gray-600);"><strong>{name}</strong> <span style="color:#999">({desc})</span></span>
+                <span style="color:var(--gray-400); font-family:monospace;">{status}</span>
+            </div>
+            '''
+            )
+        html_parts.append('</div></div>')
+
+    # --- 2. 路由部分 (增强：显示子网掩码) ---
+    html_parts.append('<div style="margin-bottom: 10px;">')
+    html_parts.append('<strong style="font-size:14px; display:block; margin-bottom:12px; color:var(--gray-800); border-left:4px solid var(--primary); padding-left:10px;">🗺️ 缺省路由 (Default Routes)</strong>')
+    
     if metrics['default_routes']:
+        html_parts.append('''
+        <div style="overflow-x:auto;">
+            <table style="width:100%; border-collapse:collapse; font-size:13px; background:#fff; border:1px solid var(--gray-200); border-radius:8px; overflow:hidden;">
+                <thead>
+                    <tr style="background:var(--gray-50); text-align:left;">
+                        <th style="padding:10px 15px; color:var(--gray-600); font-weight:600; border-bottom:1px solid var(--gray-200);">目标网络</th>
+                        <th style="padding:10px 15px; color:var(--gray-600); font-weight:600; border-bottom:1px solid var(--gray-200);">子网掩码</th>
+                        <th style="padding:10px 15px; color:var(--gray-600); font-weight:600; border-bottom:1px solid var(--gray-200);">网关地址</th>
+                        <th style="padding:10px 15px; color:var(--gray-600); font-weight:600; border-bottom:1px solid var(--gray-200);">接口 IP</th>
+                        <th style="padding:10px 15px; color:var(--gray-600); font-weight:600; border-bottom:1px solid var(--gray-200);">Metric</th>
+                    </tr>
+                </thead>
+                <tbody>
+        ''')
+        
         for r in metrics['default_routes']:
             # r 格式通常为: "0.0.0.0  0.0.0.0  10.10.100.1  10.10.100.161  281"
             parts = r.split()
             if len(parts) >= 5:
+                target_net = parts[0]
+                subnet_mask = parts[1]  # 【新增】提取子网掩码
                 gw = parts[2]
                 iface_ip = parts[3]
                 metric = parts[4]
-                route_html += f'''
-                <div style="padding:6px 0; border-bottom:1px solid var(--gray-100); font-size:12px; display:flex; justify-content:space-between;">
-                    <span style="font-family:monospace; color:var(--gray-800)">
-                        网关: <b>{gw}</b> via {iface_ip}
-                    </span>
-                    <span style="color:#999; font-size:11px;">Metric: {metric}</span>
-                </div>
+                
+                html_parts.append(f'''
+                <tr style="border-bottom:1px solid var(--gray-100);">
+                    <td style="padding:10px 15px; font-family:monospace; color:var(--gray-800);">{target_net}</td>
+                    <td style="padding:10px 15px; font-family:monospace; color:var(--gray-600);">{subnet_mask}</td>
+                    <td style="padding:10px 15px; font-family:monospace; font-weight:600; color:var(--primary);">{gw}</td>
+                    <td style="padding:10px 15px; font-family:monospace; color:var(--gray-600);">{iface_ip}</td>
+                    <td style="padding:10px 15px; color:#999;">{metric}</td>
+                </tr>
                 '''
+                )
+        html_parts.append('</tbody></table></div>')
     else:
-        route_html += '<div style="color:var(--danger);padding:5px 0">⚠️ 未检测到缺省路由</div>'
-    route_html += '</div></div>'
+        html_parts.append('<div style="padding:15px; background:#fef2f2; border:1px solid #fecaca; border-radius:8px; color:var(--danger); font-size:13px;">⚠️ 未检测到缺省路由，可能导致无法访问互联网。</div>')
     
-    # 使用 Flex 布局并排显示，如果屏幕窄则自动换行
-    return f'<div class="evidence-grid" style="display:flex; gap:20px; flex-wrap:wrap;">{nic_html}{route_html}</div>'
+    html_parts.append('</div>')
+
+    return "".join(html_parts)
 
 def _generate_issues_and_actions(issues, recommendations) -> str:
     """生成问题与建议"""
@@ -656,7 +713,7 @@ def generate_cross_border_html_report(report: FinalReport, cross_border_result) 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>跨境链路 SLA 分析报告 - {report_id}</title>
+    <title>瑞斯康达跨境FAQ--跨境链路SLA测试报告 - {report_id}</title>
     <style>
         :root {{
             --primary: #2563eb; --success: #10b981; --warning: #f59e0b; --danger: #ef4444;
@@ -720,7 +777,7 @@ def generate_cross_border_html_report(report: FinalReport, cross_border_result) 
         <!-- 1. 头部 -->
         <div class="header">
             <div class="title-group">
-                <h1>跨境链路 SLA 深度分析 <span class="badge-intl">🌍 Cross-Border</span></h1>
+                <h1>瑞斯康达跨境FAQ--跨境链路SLA测试报告 <span class="badge-intl">🌍 Cross-Border</span></h1>
                 <p>ID: {report_id} | 测试时长: {test_duration:.1f}s | 时间: {timestamp}</p>
             </div>
         </div>
@@ -991,20 +1048,29 @@ def _generate_link_sla_table(link_results: list) -> str:
         jitter = getattr(link, 'jitter', 0)
         score = getattr(link, 'stability_score', 0)
 
+        # --- 初始化变量，防止 UnboundLocalError ---
+        lat_class = "" 
+        lat_status = ""
+        loss_status = ""
+        overall_verdict = ""
+        score_color = "#999" # 默认灰色
+
         # --- 单项指标判定逻辑 (可根据实际 SLA 要求调整阈值) ---
         
         # 1. 延迟判定 & 2. 丢包判定 (联合判断不可达)
         # 如果丢包100% 或者 延迟大于 5000ms (我们设定的不可达阈值)，则视为不可达
-        is_unreachable = (loss >= 100.0) or (lat > 5000)
+        is_unreachable = (loss >= 100.0) or (lat > 5000) or (score == 0 and loss > 90)
         
         if is_unreachable:
             # 不可达状态
-            lat_display = "<span style='color:#ef4444; font-weight:bold;'>不可达</span>"
+            # lat_display 变量在此处未使用，可移除或保留用于调试
             lat_status = '<span class="badge b-red">失败</span>'
-            loss_display = f"<span style='color:#ef4444; font-weight:bold;'>{loss:.1f}%</span>"
+            # loss_display 变量在此处未使用，可移除或保留用于调试
             loss_status = '<span class="badge b-red">严重</span>'
-            jitter_display = "<span style='color:#999;'>-</span>"
+            # jitter_display 变量在此处未使用，可移除或保留用于调试
             overall_verdict = '<span style="color:#ef4444; font-weight:bold; font-size:14px;">❌ 链路中断</span>'
+            lat_class = "text-red" # 确保延迟文字也是红色
+            score_color = "#ef4444"
         else:
             if lat < 150:
                 lat_status = '<span class="badge b-green">优秀</span>'
@@ -1027,11 +1093,14 @@ def _generate_link_sla_table(link_results: list) -> str:
             # 3. 综合 SLA 结论
             if score >= 80:
                 overall_verdict = '<span style="color:#10b981; font-weight:bold;">✅ 达标</span>'
+                score_color = "#10b981"
             elif score >= 60:
                 overall_verdict = '<span style="color:#f59e0b; font-weight:bold;">⚠️ 临界</span>'
+                score_color = "#f59e0b"
             else:
                 overall_verdict = '<span style="color:#ef4444; font-weight:bold;">❌ 不达标</span>'
-
+                score_color = "#ef4444"
+                
         rows_html += f'''
         <tr>
             <td><strong>{target}</strong></td>
@@ -1090,9 +1159,7 @@ def _generate_cross_border_recommendations_html(link_results: list, overall_scor
     elif avg_lat > 200:
         recs.append("⚡ <strong>延迟中等</strong>：建议开启 TCP 加速或协议优化功能，提升应用层响应速度。")
         
-    if avg_loss > 2:
-        recs.append("🔧 <strong>丢包严重</strong>：强烈建议开启 FEC (前向纠错) 或 ARQ (自动重传) 功能以保障业务连续性。")
-    elif avg_loss > 0.5:
+    if avg_loss > 0.5:
         recs.append("📉 <strong>轻微丢包</strong>：建议监控链路波动，考虑配置多链路负载分担以降低单链路压力。")
         
     if overall_score >= 85:
@@ -1113,7 +1180,7 @@ def export_cross_border_html_report(report: FinalReport, cross_border_result, pa
     
     if path is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"Cross_Border_Report_{timestamp}.html"
+        filename = f"瑞斯康达跨境FAQ--跨境链路SLA测试报告_{timestamp}.html"
         path = os.path.join(REPORT_DIR, filename)
     
     html_content = generate_cross_border_html_report(report, cross_border_result)

@@ -18,6 +18,170 @@ def _run_cmd(cmd: list) -> str:
     except Exception:
         return ""
 
+def _parse_ipconfig_to_new_model(ipconfig_out: str) -> List[NetworkInterface]:
+    """
+    解析 ipconfig /all 输出，提取所有网卡信息（包括未连接/禁用的）
+    """
+    interfaces = []
+    # 使用正则分割不同的适配器块
+    # 注意：ipconfig 输出中，适配器之间通常由空行或新的 "Adapter" 标题分隔
+    blocks = re.split(r'\n\s*\n', ipconfig_out)
+    
+    for block in blocks:
+        if not block.strip():
+            continue
+            
+        # 提取适配器名称 (例如: Ethernet adapter Ethernet0:)
+        name_match = re.search(r'^(.*?adapter\s+(.+?)):', block, re.IGNORECASE | re.MULTILINE)
+        if not name_match:
+            continue
+            
+        full_header = name_match.group(1)
+        nic_name = name_match.group(2).strip()
+        
+        # 初始化当前网卡对象
+        current_nic = NetworkInterface(
+            name=nic_name,
+            description="",
+            mac_address="",
+            ip_addresses=[],
+            subnet_masks=[], # 初始化
+            gateways=[],
+            dns_servers=[],
+            is_dhcp=False,
+            status="Unknown"
+        )
+        
+        # 1. 提取描述 (Description)
+        desc_match = re.search(r'Description\.?\.?\s*:\s*(.+)', block)
+        if desc_match:
+            current_nic.description = desc_match.group(1).strip()
+            
+        # 2. 提取物理地址 (MAC)
+        mac_match = re.search(r'Physical Address\.?\.?\s*:\s*(.+)', block)
+        if mac_match:
+            current_nic.mac_address = mac_match.group(1).strip()
+            
+        # 3. 提取 DHCP 状态
+        dhcp_match = re.search(r'DHCP Enabled\.?\.?\s*:\s*(.+)', block)
+        if dhcp_match:
+            current_nic.is_dhcp = "yes" in dhcp_match.group(1).lower()
+            
+        # 4. 提取 IP 地址 和 子网掩码 (可能有多组 IPv4/IPv6)
+        # 匹配模式： IPv4 Address . . . . . . . . . . . : 192.168.1.100
+        #           Subnet Mask . . . . . . . . . . . : 255.255.255.0
+        lines = block.split('\n')
+        temp_ips = []
+        temp_masks = []
+        
+        for line in lines:
+            # 匹配 IP
+            ip_match = re.search(r'(?:IPv4|IP) Address\.?\.?\s*:\s*(.+?)(?:\(Preferred\)|\(Duplicate\))?', line)
+            if ip_match:
+                temp_ips.append(ip_match.group(1).strip())
+            
+            # 匹配子网掩码 (通常在 IP 下方附近，或者同一块中)
+            mask_match = re.search(r'Subnet Mask\.?\.?\s*:\s*(.+)', line)
+            if mask_match:
+                temp_masks.append(mask_match.group(1).strip())
+                
+        # 简单对齐：如果 IP 和 Mask 数量一致，则一一对应；否则只保留 IP
+        if len(temp_ips) == len(temp_masks):
+            current_nic.ip_addresses = temp_ips
+            current_nic.subnet_masks = temp_masks
+        else:
+            current_nic.ip_addresses = temp_ips
+            # 如果数量不匹配，尝试填充或留空，这里保守处理，只保留解析到的
+            current_nic.subnet_masks = temp_masks if temp_masks else [""] * len(temp_ips)
+
+        # 5. 提取默认网关
+        gw_matches = re.findall(r'Default Gateway\.?\.?\s*:\s*(.+)', block)
+        for gw in gw_matches:
+            gw_val = gw.strip()
+            if gw_val and gw_val != "0.0.0.0":
+                current_nic.gateways.append(gw_val)
+                
+        # 6. 提取 DNS
+        dns_matches = re.findall(r'DNS Servers\.?\.?\s*:\s*(.+)', block)
+        current_nic.dns_servers = [d.strip() for d in dns_matches if d.strip()]
+        
+        # 7. 判断状态 (Connected / Disconnected / Media Disconnected)
+        if "Media disconnected" in block:
+            current_nic.status = "Media disconnected"
+        elif "Connection-specific DNS Suffix" in block or current_nic.ip_addresses:
+            # 如果有 IP 或特定后缀，通常意味着已连接
+            current_nic.status = "Connected"
+        else:
+            # 检查是否有 "Status" 字段 (某些版本 ipconfig 有)
+            status_match = re.search(r'Media State\.?\.?\s*:\s*(.+)', block)
+            if status_match:
+                state = status_match.group(1).strip()
+                if "disconnected" in state.lower():
+                    current_nic.status = "Disconnected"
+                else:
+                    current_nic.status = "Connected" # 假设其他状态为连接
+            else:
+                # 如果没有明确断开标志，且有 IP，视为连接
+                current_nic.status = "Connected" if current_nic.ip_addresses else "Disconnected"
+
+        interfaces.append(current_nic)
+        
+    return interfaces
+
+def _is_relevant_interface(name: str, description: str) -> bool:
+    """
+    判断网卡是否属于需要展示的类型：以太网、WLAN、VPN。
+    """
+    combined_text = f"{name} {description}".lower()
+    include_keywords = [
+        'ethernet', 'pci', 'gbe', 'family', 'controller',
+        'wireless', 'wi-fi', 'wlan', '802.11',
+        'vpn', 'tunnel', 'ppp', 'l2tp', 'tap-windows', 'wintun', 'zerotier'
+    ]
+    exclude_keywords = [
+        'bluetooth', 'bt', '个人区域网',
+        'loopback', 'microsoft loopback',
+        'teredo', 'isatap', '6to4',
+        'vmware network adapter vmnet', 'virtualbox host-only',
+        'hyper-v', 'vswitch'
+    ]
+
+    for kw in exclude_keywords:
+        if kw in combined_text:
+            return False
+    for kw in include_keywords:
+        if kw in combined_text:
+            return True
+    return False
+
+def _identify_primary_nic(interfaces: List[NetworkInterface]) -> Optional[NetworkInterface]:
+    """
+    识别主网卡：优先选择状态为 Connected 且有默认网关的以太网/WLAN 网卡
+    """
+    # 1. 优先找 Connected 且有 Gateway 的
+    connected_with_gw = [
+        nic for nic in interfaces 
+        if nic.status == "Connected" and nic.gateways and _is_relevant_interface(nic.name, nic.description)
+    ]
+    if connected_with_gw:
+        # 简单策略：返回第一个，或者可以根据 Metric 排序
+        return connected_with_gw[0]
+        
+    # 2. 其次找 Connected 的
+    connected = [
+        nic for nic in interfaces 
+        if nic.status == "Connected" and _is_relevant_interface(nic.name, nic.description)
+    ]
+    if connected:
+        return connected[0]
+        
+    # 3. 最后兜底：返回第一个相关网卡
+    relevant = [nic for nic in interfaces if _is_relevant_interface(nic.name, nic.description)]
+    if relevant:
+        return relevant[0]
+        
+    return None
+
 def collect_system_environment() -> SystemEnvironmentResult:
     result = SystemEnvironmentResult()
     issues = []
@@ -30,25 +194,43 @@ def collect_system_environment() -> SystemEnvironmentResult:
         result.issues = issues
         return result
 
-    # 2. 解析网卡信息 (复用并适配 local_net_config 的逻辑)
-    result.interfaces = _parse_ipconfig_to_new_model(ipconfig_out)
+    # 2. 解析所有网卡
+    all_parsed_interfaces = _parse_ipconfig_to_new_model(ipconfig_out)
     
-    # 3. 识别主网卡
-    result.primary_interface = _identify_primary_nic(result.interfaces)
+    # 3. 【关键修改】不再在这里过滤 interfaces，而是保留所有解析到的网卡
+    # 这样前端可以显示“未启用”或“未连接”的网卡
+    result.interfaces = all_parsed_interfaces
+    
+    # 4. 识别主网卡 (内部会使用 _is_relevant_interface 进行优选)
+    result.primary_interface = _identify_primary_nic(all_parsed_interfaces)
     
     if not result.primary_interface:
         issues.append(Issue(level="error", category="Config", message="未找到有效的主网络适配器"))
         result.config_score -= 30
     else:
-        # 4. 基于主网卡的静态配置检查
+        # 标记主网卡
+        for nic in result.interfaces:
+            if nic.name == result.primary_interface.name:
+                nic.is_primary = True
+                break
+
+        # 静态配置检查
         if not result.primary_interface.ip_addresses:
-            issues.append(Issue(level="error", category="Config", message="主网卡无 IPv4 地址"))
+            issues.append(Issue(level="error", category="Config", message=f"主网卡 '{result.primary_interface.name}' 无 IPv4 地址"))
             result.config_score -= 20
             
         if not result.primary_interface.gateways:
             issues.append(Issue(level="error", category="Config", message="主网卡无默认网关"))
             result.config_score -= 20
-        elif len(set(gw for nic in result.interfaces for gw in nic.gateways)) > 1:
+            
+        # 多网关检查 (仅针对已连接且有网关的网卡)
+        active_gateways = set()
+        for nic in result.interfaces:
+            if nic.status == "Connected" and nic.gateways:
+                for gw in nic.gateways:
+                    active_gateways.add(gw)
+        
+        if len(active_gateways) > 1:
             result.has_multiple_gateways = True
             issues.append(Issue(level="warning", category="Config", message="检测到多个活跃网关，可能存在路由冲突"))
             result.config_score -= 10
@@ -57,7 +239,7 @@ def collect_system_environment() -> SystemEnvironmentResult:
             issues.append(Issue(level="error", category="Config", message="主网卡未配置 DNS"))
             result.config_score -= 15
 
-    # 5. 代理检测 (注册表)
+    # 6. 代理检测 (注册表)
     try:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Internet Settings")
         val, _ = winreg.QueryValueEx(key, "ProxyEnable")

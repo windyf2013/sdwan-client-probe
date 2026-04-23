@@ -160,13 +160,14 @@ class NetworkInterface:
     name: str
     description: str
     mac_address: str
-    ip_addresses: List[str]
-    subnet_masks: List[str]
-    gateways: List[str]
-    dns_servers: List[str]
-    is_dhcp: bool
-    status: str  # Connected, Disconnected, Unknown
+    ip_addresses: List[str] = field(default_factory=list)
+    subnet_masks: List[str] = field(default_factory=list)  # 【新增】子网掩码列表
+    gateways: List[str] = field(default_factory=list)
+    dns_servers: List[str] = field(default_factory=list)
+    is_dhcp: bool = False
+    status: str = "Unknown"   # Connected, Disconnected, Unknown
     is_primary: bool = False  # 是否被识别为主网卡
+    mtu: int = 1500
 
 @dataclass
 class SystemEnvironmentResult:

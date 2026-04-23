@@ -4,6 +4,7 @@ import ctypes
 import sys
 import logging
 import traceback
+import os
 from dataclasses import asdict
 from typing import Optional, List
 
@@ -40,6 +41,23 @@ try:
     from sdwan_analyzer.modules.proxy_check import check_windows_proxy
 except ImportError:
     check_windows_proxy = None
+
+# 6. 扩展模块
+from sdwan_analyzer.tools.builtin.connectivity_probe import (
+    DomainAccessibilityResult,
+    TestResult
+)
+from sdwan_analyzer.tools.builtin.cpe_info import CpeInfoCollector  # CPE信息采集
+from sdwan_analyzer.tools.builtin.dns_resolve import dns_resolve_test  # DNS解析结果采集
+from sdwan_analyzer.tools.builtin.gateway_check import gateway_connectivity_check 
+from sdwan_analyzer.tools.builtin.http_probe import single_http_probe 
+from sdwan_analyzer.tools.builtin.loss_jitter_probe import loss_jitter_probe 
+from sdwan_analyzer.tools.builtin.mtu_probe import mtu_probe
+from sdwan_analyzer.tools.builtin.port_scan import tcp_port_scan
+from sdwan_analyzer.tools.builtin.public_ip_check import get_public_ip 
+from sdwan_analyzer.tools.builtin.telnet_client import telnet_client
+from sdwan_analyzer.tools.builtin.tracert_test import tracert_test
+from sdwan_analyzer.tools.builtin.net_waterfall import run_network_waterfall_diagnosis
 
 # 初始化日志 (建议在 main 中初始化，或者这里保持基本配置)
 # logging.basicConfig(level=logging.DEBUG) 
@@ -100,46 +118,55 @@ def print_section(title):
     print(f"\n===== {title} =====")
 
 def print_menu():
-    """打印主菜单 - 统一接口"""
+    """打印主菜单 - 统一接口   """
     print("========================================")
-    print("      SD-WAN分析器 v1.0 (标准接口)")
+    print("   瑞斯康达跨境FAQ助手 v1.1 (标准接口)    ")
     print("========================================")
-    print("【标准命令模式】")
-    print("1. 一键诊断 (oneclick)")
-    print("2. 网络测试工具 (test)")
-    print("3. 跨境链路测试 (crossborder)")
+    print("【标准命令模式】    ")
+    print("1. 用户环境一键自查     ")
+    print("2. 跨境链路SLA测试    ")
+    print("3. 网络测试工具    ")
     #print("4. 网络监控 (monitor)")
     #print("5. 系统信息 (system)")
     print("")
-    print("0. 退出工具")
-    print("========================================")
-
+    print("0. 退出工具    ")
+    print("========================================   ")
+    
 def print_test_tools_menu():
-    """打印测试工具子菜单 - 统一接口"""
-    print("========================================")
-    print("          网络测试工具")
-    print("========================================")
-    print("【标准测试命令】")
-    print("1. Ping 测试 (ping)")
-    print("2. 路由跟踪 (trace)")
-    print("3. TCP 端口测试 (port)")
-    print("4. DNS 解析测试 (dns)")
-    print("5. MTU 探测 (mtu)")
-    print("6. 应用探测器 (app-probe)")
-    print("")
-    print("0. 返回主菜单")
+    """打印测试工具子菜单 - 精简可用版"""
+    print("========================================   ")
+    print("      网络诊断工具箱 (可用功能)    ")
+    print("========================================   ")
+    
+    print("【A. 核心基础工具】    ")
+    print(" 1. Ping 测试   ")
+    print(" 2. 路由跟踪 MTR    ")
+    print(" 3. 网关可达性检查   ")
+    print(" 4. DNS 解析详情    ")
+    print(" 5. 公网 IP 查询    ")
+    print(" 6. 端口扫描器    ")
+    print(" 7. MTU 路径探测    ")
+    print(" 8. HTTP 响应头探测    ")
+    print(" 9. 丢包与抖动分析    ")
+    print(" 10. Telnet 连接    ")
+    #print(" 11. 互联网访问全景分析    ") # 新增选项
+
+    print("\n----------------------------------------")
+    print(" 0. 返回主菜单    ")
     print("========================================")
 
 def run_test_tools():
-    """运行测试工具 - 统一接口"""
+    """运行测试工具 - 精简可用版 (与菜单顺序严格对应)    """
     while True:
         print_test_tools_menu()
-        choice = safe_input("请输入工具编号（0-6）：", "0", allow_empty=False)
+        choice = safe_input("请输入工具编号(0-11) : ", "0", allow_empty=False)
         
         if choice == "0":
             break
+        
+        # ==================== A. 核心基础工具 ====================
         elif choice == "1":
-            # Ping测试 - 统一接口
+            # 1. Ping 测试 (core.ping)
             target = safe_input("请输入目标IP/域名：", allow_empty=True)
             if target:
                 try:
@@ -148,78 +175,203 @@ def run_test_tools():
                     count = int(count) if count and count.isdigit() else 4
                     timeout = int(timeout) if timeout and timeout.isdigit() else 5
                     
-                    ping_result = ping_check(target)
-                    print(f"\nPing 测试结果 ({count}次, {timeout}秒超时):")
+                    ping_result = ping_check(target) # 来自 core.ping
+                    print(f"\n[Ping Core] 测试结果:")
                     print(f"  目标: {target}")
-                    print(f"  发送: {ping_result.sent}")
-                    print(f"  接收: {ping_result.received}")
-                    print(f"  丢失: {ping_result.loss}%")
-                    print(f"  平均延迟: {ping_result.avg_rtt}ms")
+                    print(f"  发送: {ping_result.sent}, 接收: {ping_result.received}")
+                    print(f"  丢失: {ping_result.loss}%, 平均延迟: {ping_result.avg_rtt}ms")
                 except Exception as e:
                     print(f"⚠️ Ping 失败: {e}")
+
         elif choice == "2":
-            # 路由跟踪测试 - 统一接口
+            # 2. 路由跟踪 MTR (core.mtr)
             target = safe_input("请输入目标IP/域名：", allow_empty=True)
             if target:
                 try:
                     max_hops = safe_input("最大跳数[默认30]：", "30", allow_empty=True)
                     max_hops = int(max_hops) if max_hops and max_hops.isdigit() else 30
-                    print(f"执行路由跟踪到 {target} (最大跳数: {max_hops})")
-                    run_mtr(target)
+                    print(f"[MTR Core] 执行路由跟踪到 {target} (最大跳数: {max_hops})")
+                    run_mtr(target) # 来自 core.mtr
                 except Exception as e:
-                    print(f"⚠️ 路由跟踪失败: {e}")
+                    print(f"⚠️ MTR 失败: {e}")
+
         elif choice == "3":
-            # TCP端口测试 - 统一接口
+            # 3. 网关可达性检查 (tools.gateway_connectivity_check)
+            print("\n[gateway_connectivity_check Tool] 正在检查网关可达性...")
+            try:
+                # 直接调用函数
+                status = gateway_connectivity_check()
+                print(f"  ✅ 检测完成，详见上方输出")
+            except Exception as e:
+                print(f"⚠️ 网关检查失败: {e}")
+
+        elif choice == "4":
+            # 4. DNS 解析详情 (tools.dns_resolve_test)
+            domain = safe_input("请输入域名 [默认 google.com]: ", "google.com", allow_empty=True)
+            if domain:
+                try:
+                    # 直接调用函数，它内部已经打印了详细解析结果
+                    result = dns_resolve_test(domain=domain)
+                    print(f"\n[DnsResolve Tool] 采集完成:")
+                    if isinstance(result, dict):
+                        print(f"  整体状态: {result.get('overall_status', 'Unknown')}")
+                except Exception as e:
+                    print(f"⚠️ DNS解析采集失败: {e}")
+
+        elif choice == "5":
+            # 5. 公网 IP 查询 (tools.get_public_ip)
+            print("\n[PublicIp Tool] 正在查询公网IP...")
+            try:
+                # 直接调用函数，它内部已经打印了详细信息
+                ip_info = get_public_ip() 
+                print(f"  ✅ 查询完成，详见上方输出")
+                # 如果返回的是字典，可以简单补充
+                if isinstance(ip_info, dict):
+                    print(f"  主要IP: {ip_info.get('ip', 'N/A')}")
+            except Exception as e:
+                print(f"⚠️ 公网IP查询失败: {e}")
+
+        elif choice == "6":
+            # 6. 端口扫描器 (tools.tcp_port_scan)
             target = safe_input("请输入目标IP/域名：", allow_empty=True)
             if target:
-                port = safe_input("请输入端口号[默认443]: ", "443", allow_empty=True)
-                port = int(port) if port and port.isdigit() else 443
-                timeout = safe_input("超时时间[默认10秒]: ", "10", allow_empty=True)
-                timeout = int(timeout) if timeout and timeout.isdigit() else 10
-                
+                ports_str = safe_input("请输入端口范围 [默认 80,443,8080]: ", "80,443,8080", allow_empty=True)
                 try:
-                    result = tcping(target, port)
-                    print(f"TCP端口 {port} 开放: {result}")
+                    ports = [int(p.strip()) for p in ports_str.split(',')]
+                    # 直接调用函数，它内部已经打印了详细表格
+                    result_dict = tcp_port_scan(target=target, ports=ports)
+                    
+                    # 这里只需要打印简单的总结，因为函数内部已经打印了详细列表
+                    print(f"\n[tcp_port_scan Tool] 扫描总结:")
+                    if isinstance(result_dict, dict):
+                        open_count = result_dict.get('open_ports_count', 0)
+                        print(f"  ✅ 发现 {open_count} 个开放端口")
+                    else:
+                        print(f"  ✅ 扫描完成")
                 except Exception as e:
-                    print(f"⚠️ TCP端口测试失败: {e}")
-        elif choice == "4":
-            # DNS解析测试 - 统一接口
-            try:
-                dns_server = safe_input("指定DNS服务器[空为系统默认]: ", "", allow_empty=True)
-                domain = safe_input("测试域名[默认google.com]: ", "google.com", allow_empty=True)
-                
-                print(f"DNS解析测试 - 服务器: {dns_server or '系统默认'}, 域名: {domain}")
-                result = check_dns_working()
-                print(f"DNS解析正常: {result}")
-            except Exception as e:
-                print(f"⚠️ DNS测试失败: {e}")
-        elif choice == "5":
-            # MTU探测 - 统一接口
+                    print(f"⚠️ 端口扫描失败: {e}")
+
+        elif choice == "7":
+            # 7. MTU 路径探测 (modules.app_probe)
             target = safe_input("请输入目标IP/域名：")
             if target:
                 try:
-                    mtu = detect_mtu(target)
-                    print(f"最佳MTU: {mtu}")
-                    print(f"MTU正常: {mtu >= 1400}")
+                    mtu = detect_mtu(target) # 来自 modules.app_probe
+                    print(f"[MTU Core] 最佳MTU: {mtu}")
+                    print(f"  状态: {'正常' if mtu >= 1400 else '偏低/异常'}")
                 except Exception as e:
                     print(f"⚠️ MTU探测失败: {e}")
-        elif choice == "6":
-            # 应用探测器 - 统一接口
-            target = safe_input("请输入目标IP/域名：")
+
+        # ==================== B. 扩展高级工具 ====================
+        elif choice == "8":
+            # 8. HTTP 响应头探测 (tools.single_http_probe)
+            url = safe_input("请输入URL [默认 https://www.baidu.com]: ", "https://www.baidu.com", allow_empty=True)
+            if url:
+                try:
+                    # 直接调用函数
+                    res = single_http_probe(url=url, count=1)
+                    print(f"\n[single_http_probe Tool] 响应 ({url}):")
+                except Exception as e:
+                    print(f"⚠️ single_http_probe 失败: {e}")
+
+        # ==================== C. 专项深度诊断 ====================
+        elif choice == "9":
+            # 9. 丢包与抖动分析 (tools.loss_jitter_probe)
+            target = safe_input("请输入目标IP/域名 [默认 google.com]: ", "google.com", allow_empty=True)
             if target:
                 try:
-                    result = run_app_probe(target)
-                    print(f"应用探测结果:")
-                    print(f"  TCP端口开放: {result.tcp_open}")
-                    print(f"  HTTP可用性: {result.http_available}")
+                    # 直接调用函数
+                    res = loss_jitter_probe(target=target) 
+                    
+                    print(f"\n[LossJitter Tool] 结果 ({target}):")
+                    if isinstance(res, dict):
+                        print(f"  丢包率: {res.get('packet_loss', res.get('loss', 0)):.1f}%")
+                        print(f"  抖动: {res.get('jitter', 0):.1f}ms")
+                        print(f"  平均延迟: {res.get('avg_rtt', res.get('avg_delay', 0)):.1f}ms")
+                    else:
+                        print(f"  原始结果: {res}")
                 except Exception as e:
-                    print(f"⚠️ 应用探测失败: {e}")
+                    print(f"⚠️ 丢包抖动测试失败: {e}")
+        elif choice == "10":
+            # 10. Telnet 真实连接 (交互式)
+            target = safe_input("请输入目标IP/域名：", allow_empty=True)
+            if target:
+                port = safe_input("请输入端口 [默认 23]: ", "23", allow_empty=True)
+                port = int(port) if port.isdigit() else 23
+                
+                try:
+                    print(f"\n[Telnet Tool] 正在初始化连接到 {target}:{port} ...")
+                    print("[提示] 连接成功后将进入交互模式。按 Ctrl+C 退出会话。")
+                    
+                    # 1. 实例化 telnet_client 类
+                    client = telnet_client()
+                    
+                    # 2. 手动设置目标参数
+                    client.ip = target
+                    client.port = port
+                    
+                    # 3. 直接调用同步的 connect 方法
+                    # 注意：telnet_client.connect() 是同步方法，内部已处理 asyncio 循环
+                    if client.connect():
+                        print(f"\n✅ 已连接到 {target}:{port}，进入交互模式...")
+                        # 4. 启动交互式会话 (也是同步方法，内部阻塞直到断开)
+                        client.telnet_interactive()
+                    else:
+                        print(f"\n❌ 无法连接到 {target}:{port}")
+                    
+                except KeyboardInterrupt:
+                    print("\n⚠️ 用户中断连接")
+                except Exception as e:
+                    print(f"⚠️ Telnet 连接异常: {e}")
+                    # traceback.print_exc() # 调试时可开启
+        elif choice == "11":
+            # 11. 互联网访问全景分析
+            target_url = safe_input("请输入目标URL [默认 https://www.baidu.com]: ", "https://www.baidu.com", allow_empty=True)
+            if target_url:
+                try:
+                    report_dir = os.path.join(os.getcwd(), "reports", "waterfall")
+                    
+                    print("\n[提示] 该功能将启动无头浏览器，进行请求捕获、出口IP探测及一致性分析。")
+                    print("[提示] 根据页面复杂度，可能耗时 30-60 秒，请耐心等待...\n")
+                    
+                    result = run_network_waterfall_diagnosis(target_url, output_dir=report_dir)
+                    
+                    if result.get("status") == "success":
+                        print("\n✅ 分析完成！")
+                        print(f"📄 可视化 HTML 报告: {result['html_report']}")
+                        print(f"📦 Playwright Trace: {result['trace_file']}")
+                        
+                        # 直接在控制台展示关键发现
+                        summary = result.get('consistency_summary', {})
+                        if summary:
+                            print("\n--- 智能分析摘要 ---")
+                            if summary.get('multi_egress'):
+                                print(f"⚠️ 多出口负载: 检测到 {len(summary['http_ips'])} 个不同出口IP")
+                                for ip_detail in summary.get('ip_details', []):
+                                    print(f"   - {ip_detail['ip']} ({ip_detail['region']}): {ip_detail['percentage']}")
+                            
+                            if summary.get('mismatches'):
+                                print(f"⚠️ 路径分离: {len(summary['mismatches'])} 个域名的 DNS 解析出口与 HTTP 实际出口不一致")
+                                print("   (建议检查本地代理设置或 DNS 污染情况)")
+                            
+                            if not summary.get('multi_egress') and not summary.get('mismatches'):
+                                print("✅ 链路一致性检查通过，未发现明显异常。")
+                        
+                        print("\n💡 如何查看？")
+                        print(f"   1. 用浏览器打开 HTML 报告查看全景图和建議。")
+                        print(f"   2. 命令行运行: playwright show-trace \"{result['trace_file']}\" 查看底层时序。")
+                        
+                    else:
+                        print(f"\n⚠️ 诊断失败: {result.get('message', '未知错误')}")
+                        
+                except Exception as e:
+                    print(f"⚠️ 工具执行异常: {e}")
+                    # traceback.print_exc()
+        
         else:
             print("输入有误，请重新输入")
         
         press_any_key()
-
-
 
 def run_cross_border_detection():
     """跨境链路专项测试 - 包含MTU探测等深度测试功能"""
@@ -263,20 +415,29 @@ def run_cross_border_detection():
         # 2. 提取 DNS 对比测试结果
         dns_comp_obj = getattr(cross_result, 'dns_comparison', None)
         dns_comparison_results = []
+        
         if dns_comp_obj:
             current_gateway_ip = get_default_gateway()
-            # 假设 cross_border_test.py 中已新增 get_system_primary_dns() 并填充了 system_dns_server
-            system_dns_ip = getattr(dns_comp_obj, 'system_dns_server', 'N/A') 
             
+            # 【优化】直接获取清洗后的系统 DNS IP
+            # 由于 cross_border_test.py 中的 get_system_primary_dns 已经过滤了 fe80，
+            # 这里直接使用 system_dns_server 字段，如果为空则显示一个更友好的默认提示
+            system_dns_ip = getattr(dns_comp_obj, 'system_dns_server', '')
+            
+            # 如果还是没拿到（极端情况），尝试从 resolved_ips 反推或者给个通用提示
+            if not system_dns_ip or system_dns_ip == "N/A":
+                # 尝试从解析结果中找线索，或者干脆显示“系统默认”
+                system_dns_ip = "系统默认配置"
+
             dns_comparison_results.append({
-                "server_local": current_gateway_ip, 
+                "server_local": current_gateway_ip or "默认网关", 
                 "ip_local": getattr(dns_comp_obj, 'gateway_resolved_ips', []),
                 "status_local": getattr(dns_comp_obj, 'gateway_dns_status', 'unknown'),
                 
-                "server_system": system_dns_ip, # 新增
-                "ip_system": getattr(dns_comp_obj, 'system_resolved_ips', []), # 新增
-                "status_system": getattr(dns_comp_obj, 'system_dns_status', 'unknown'), # 新增
-                
+                "server_system": system_dns_ip, # 直接展示清洗后的 IP 或友好提示
+                "ip_system": getattr(dns_comp_obj, 'system_resolved_ips', []), 
+                "status_system": getattr(dns_comp_obj, 'system_dns_status', 'unknown'), 
+
                 "server_public": "8.8.8.8",
                 "ip_public": getattr(dns_comp_obj, 'local_resolved_ips', []),
                 "status_public": getattr(dns_comp_obj, 'public_dns_status', 'unknown'),
@@ -938,11 +1099,7 @@ def run_diagnosis():
                         "app_res": app_result,
                         "description": target_config.get("description", "")
                     })
-                    
-                    print(f"    Ping状态: {ping_status}")
-                    print(f"    应用状态: {app_status}")
-                    if target_config.get("description"):
-                        print(f"    应用描述: {target_config['description']}")
+
                     print("")
         else:
             print("  未配置业务目标")
@@ -1088,7 +1245,7 @@ def main():
     
     #logging.info(f"日志文件已创建：{log_file}")
     
-    print("SDWAN Analyzer 启动...")
+    print("瑞斯康达跨境FAQ助手 启动...")
     
     # 3. 主循环
     while True:
@@ -1096,23 +1253,23 @@ def main():
         choice = safe_input("请输入功能编号（0-3）：", "0", allow_empty=False)
         
         if choice == "0":
-            print("退出工具，谢谢使用SD-WAN分析器！")
+            print("退出工具，谢谢使用 瑞斯康达跨境FAQ助手！")
             break
         elif choice == "1":
             # 一键诊断功能 - 统一接口
             print("\n==================================================")
-            print("          一键诊断 (oneclick 命令)")
+            print("          终端一键诊断")
             print("==================================================")
             run_diagnosis()
         elif choice == "2":
-            # 网络测试工具 - 统一接口
-            run_test_tools()
-        elif choice == "3":
             # 跨境链路测试 - 统一接口
             print("\n==================================================")
-            print("          跨境链路测试 (crossborder 命令)")
+            print("          跨境链路分析")
             print("==================================================")
             run_cross_border_detection()
+        elif choice == "3":
+            # 网络测试工具 - 统一接口
+            run_test_tools()
         else:
             print("输入有误，请重新输入")
 """

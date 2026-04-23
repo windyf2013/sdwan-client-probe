@@ -5,6 +5,7 @@
 职责：执行跨境业务目标的连通性、延迟及路径质量检测
 """
 
+import re
 import time
 import logging
 import socket
@@ -119,31 +120,85 @@ def get_default_gateway() -> Optional[str]:
 def get_system_primary_dns() -> Optional[str]:
     """
     获取系统当前网卡配置的首选 DNS 服务器 IP
+    【增强版】优先返回 IPv4，自动过滤 fe80:: 等链路本地地址
     """
     try:
         if platform.system() == "Windows":
             # 使用 ipconfig /all 获取更详细的 DNS 信息
             output = subprocess.check_output(["ipconfig", "/all"], stderr=subprocess.DEVNULL).decode('gbk', errors='ignore')
             lines = output.splitlines()
-            for i, line in enumerate(lines):
+            
+            collected_dns_v4 = []
+            collected_dns_v6 = []
+            
+            # 状态标记：是否正在读取某个适配器的 DNS 部分
+            in_dns_section = False
+            
+            for line in lines:
+                # 检测新的适配器块开始 (例如: "Ethernet adapter Ethernet:")
+                if "adapter" in line.lower() and ":" in line:
+                    in_dns_section = False # 重置状态，准备读取新适配器的 DNS
+                
+                # 检测 DNS 服务器行
                 if "DNS Servers" in line or "DNS 服务器" in line:
-                    # 通常 DNS 服务器在冒号后面，且可能有多个，取第一个有效的
+                    in_dns_section = True
                     parts = line.split(":")
                     if len(parts) > 1:
-                        dns_ip = parts[1].strip()
-                        # 过滤掉空值或无效IP
-                        if dns_ip and not dns_ip.startswith("0.") and not dns_ip.startswith("127."):
-                            # 有时候下一行会有缩进的第二个DNS，我们只取当前行第一个
-                            return dns_ip
+                        ip = parts[1].strip()
+                        if ip:
+                            _classify_and_store_dns(ip, collected_dns_v4, collected_dns_v6)
+                    continue # 继续检查是否有同一行的其他内容（通常没有）
+                
+                # 检测缩进的后续 DNS 行 (通常以空格开头)
+                if in_dns_section and line.startswith(" ") and line.strip():
+                    ip = line.strip()
+                    # 如果遇到新的非 DNS 字段（如 Default Gateway），则退出 DNS 读取区
+                    if ":" in ip and not re.match(r'\s*\d', line): 
+                         # 简单的启发式判断：如果包含冒号且不是IP格式，可能是新字段
+                         # 但为了稳健，我们只处理看起来像 IP 的行
+                         pass
+                    
+                    if re.match(r'^[\d\.:a-fA-F]+$', ip): # 简单的 IP 格式校验
+                         _classify_and_store_dns(ip, collected_dns_v4, collected_dns_v6)
+                
+                # 如果遇到空行或非缩进行，结束当前适配器的 DNS 读取
+                elif in_dns_section and not line.startswith(" ") and line.strip():
+                    in_dns_section = False
+
+            # 优先返回 IPv4
+            if collected_dns_v4:
+                return collected_dns_v4[0]
+            # 其次返回非 fe80 的 IPv6
+            if collected_dns_v6:
+                return collected_dns_v6[0]
+                
         else:
             # Linux/Mac: 读取 resolv.conf
             with open("/etc/resolv.conf", "r") as f:
                 for line in f:
                     if line.startswith("nameserver"):
-                        return line.split()[1].strip()
+                        ip = line.split()[1].strip()
+                        if not ip.startswith('fe80') and not ip.startswith('169.254'):
+                            return ip
     except Exception as e:
         logger.warning(f"获取系统首选DNS失败: {e}")
     return None
+
+def _classify_and_store_dns(ip: str, v4_list: list, v6_list: list):
+    """辅助函数：分类并存储 DNS IP"""
+    if not ip:
+        return
+    # 过滤无效 IP
+    if ip.startswith('0.') or ip.startswith('127.') or ip.startswith('169.254.'):
+        return
+    # 过滤 fe80 开头的 IPv6 链路本地地址
+    if ip.lower().startswith('fe80'):
+        return
+        
+    if '.' in ip:
+        v4_list.append(ip)
+    elif ':' in ip:
+        v6_list.append(ip)
 
 def perform_dns_comparison(domain: str = "www.google.com") -> DNSComparisonResult:
     """
@@ -263,7 +318,7 @@ def _test_single_target(target: str) -> LinkQualityResult:
     
     try:
         # 1. Ping 测试
-        ping_res = ping_check(target)
+        ping_res = ping_check(target, 10)
         
         if ping_res.is_success:
             result.avg_latency = ping_res.avg_rtt
